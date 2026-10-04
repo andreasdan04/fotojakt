@@ -1,0 +1,30 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {Dialog,DialogContent,DialogTitle,DialogDescription} from '@/components/ui/dialog';
+const choices=[['👍','Liker'],['❤️','Elsker'],['😂','Haha'],['😮','Wow'],['😢','Trist'],['🔥','Rått'],['👏','Applaus']];
+export default function PhotoSocial({photo,data,canInteract,busy,act,onProfile,expanded=false}:any){
+ const [more,setMore]=useState(false),[draft,setDraft]=useState(''),[reply,setReply]=useState<any>(null);
+ const input=useRef<HTMLTextAreaElement>(null);
+ const comments=(data.comments||[]).filter((c:any)=>c.submission===photo.id),count=comments.filter((c:any)=>!c.deleted).length;
+ const ids=new Set(comments.map((c:any)=>c.id));
+ const roots=comments.filter((c:any)=>!c.parent_id||!ids.has(c.parent_id));
+ const visible=expanded||more?comments:comments.filter((c:any)=>!c.deleted).slice(-1);
+ const ordered=expanded||more?roots.flatMap((c:any)=>[c,...comments.filter((r:any)=>r.parent_id===c.id)]):visible;
+ function answer(c:any){setReply(c);setMore(true);setTimeout(()=>input.current?.focus(),0)}
+ return <section className="post-social">
+ <div className="comment-heading"><div className="comment-tools"><LikeButton photo={photo} reactions={data.reactions||[]} disabled={busy||!canInteract} act={act} onProfile={onProfile}/></div><strong>Kommentarer ({count})</strong></div>
+ {!expanded&&count>1&&<button className="text-action comment-expand" onClick={()=>setMore(!more)}>{more?'Vis færre':'Vis flere kommentarer'}</button>}
+ <div className="comment-list">{ordered.map((c:any)=><div className={'comment-card '+((expanded||more)&&c.parent_id&&ids.has(c.parent_id)?'comment-reply':'')} key={c.id}>{c.deleted?<p className="muted">Kommentaren er slettet.</p>:<><button className="profile-link" onClick={()=>onProfile?.({id:c.user,name:c.name})}><strong>{c.name}</strong></button>{c.parent_id&&!more&&!expanded&&<span className="comment-reply-label"> · svar</span>}<p>{c.body}</p><div className="comment-actions"><time>{new Date(c.created).toLocaleString('nb-NO',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Oslo'})}</time>{canInteract&&<button disabled={busy} onClick={()=>answer(c)}>Svar</button>}{(c.user===data.user.id||data.admin)&&<button disabled={busy} onClick={()=>act({action:'delete-comment',id:c.id},'Kommentaren er slettet')}>Slett</button>}</div></>}</div>)}</div>
+ {canInteract?<form onSubmit={async e=>{e.preventDefault();if(await act({action:'comment',id:photo.id,body:draft,parent:reply?.id},'')){setDraft('');setReply(null);setMore(true)}}}>{reply&&<div className="reply-target"><span>Svarer {reply.name}</span><button type="button" className="text-action" onClick={()=>setReply(null)}>Avbryt</button></div>}<label className="sr-only" htmlFor={'comment-'+photo.id+(expanded?'-expanded':'')}>{reply?'Skriv et svar':'Skriv en kommentar'}</label><div className="comment-compose"><textarea ref={input} id={'comment-'+photo.id+(expanded?'-expanded':'')} rows={1} value={draft} onChange={e=>setDraft(e.target.value)} required maxLength={500} placeholder={reply?'Skriv et svar …':'Skriv en kommentar …'}/><button className="button" disabled={busy||!draft.trim()}>{reply?'Svar':'Send'}</button></div></form>:<p className="muted">Lever ditt bilde for å kommentere og reagere.</p>}
+ </section>;
+}
+function LikeButton({photo,reactions,disabled,act,onProfile}:any){
+ const [picker,setPicker]=useState(false),[names,setNames]=useState(false);
+ const timer=useRef<ReturnType<typeof setTimeout>|null>(null),held=useRef(false),point=useRef({x:0,y:0});
+ const items=reactions.filter((r:any)=>r.submission===photo.id),mine=items.find((r:any)=>r.mine),total=items.reduce((n:number,r:any)=>n+r.count,0);
+ const cancel=()=>{if(timer.current)clearTimeout(timer.current);timer.current=null};useEffect(()=>cancel,[]);
+ const react=(emoji:string)=>{setPicker(false);return act({action:'react',id:photo.id,emoji},'')};
+ return <><div className="like-row"><button disabled={disabled} className={'button single-like '+(mine?'reacted':'')} aria-pressed={!!mine} aria-label="Liker. Hold inne for flere reaksjoner." onPointerDown={e=>{cancel();held.current=false;point.current={x:e.clientX,y:e.clientY};timer.current=setTimeout(()=>{held.current=true;setPicker(true)},450)}} onPointerMove={e=>{if(Math.abs(e.clientX-point.current.x)+Math.abs(e.clientY-point.current.y)>12){cancel();held.current=true}}} onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={()=>{cancel();held.current=true}} onContextMenu={e=>{e.preventDefault();cancel();held.current=true;if(!disabled)setPicker(true)}} onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();setPicker(true)}}} onClick={()=>{if(held.current){held.current=false;return}react(mine?.emoji||'👍')}}><span>{mine?.emoji||'👍'}</span></button>{total>0&&<button className="reaction-summary" onClick={()=>setNames(true)} aria-label="Se hvem som har reagert">{`${items.map((r:any)=>r.emoji).join(' ')} ${total}`}</button>}</div>
+ <Dialog open={picker} onOpenChange={setPicker}><DialogContent className="!max-w-sm"><DialogTitle>Velg reaksjon</DialogTitle><DialogDescription>Én reaksjon per bilde. Trykk samme reaksjon for å fjerne den.</DialogDescription><div className="reaction-picker">{choices.map(([emoji,label])=><button key={emoji} className={mine?.emoji===emoji?'chosen':''} disabled={disabled} onClick={()=>react(emoji)}><span>{emoji}</span><small>{label}</small></button>)}</div></DialogContent></Dialog>
+ <Dialog open={names} onOpenChange={setNames}><DialogContent className="!max-w-sm max-h-[80dvh] overflow-y-auto"><DialogTitle>Reaksjoner ({total})</DialogTitle><DialogDescription>Felles for alle som kan se dette bildet.</DialogDescription>{items.flatMap((r:any)=>(r.users||[]).map((u:any)=><button className="row w-full text-left" key={u.id+':'+r.emoji} onClick={()=>{setNames(false);onProfile?.(u)}}><span className="avatar">{u.name.slice(0,1)}</span><span className="grow">{u.name}</span><span>{r.emoji}</span></button>))}{!total&&<p>Ingen har reagert ennå.</p>}</DialogContent></Dialog></>;
+}

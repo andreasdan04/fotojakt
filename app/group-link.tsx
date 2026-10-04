@@ -1,0 +1,21 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {Share2,Copy,Link2} from 'lucide-react';
+import {toast} from 'sonner';
+const pendingKey='fotojakt:pending-group-link';
+export function useGroupLink(user:any,onJoined:(group:string)=>void){
+ const [token,setToken]=useState(''),[attempt,setAttempt]=useState(0);const joining=useRef(false),callback=useRef(onJoined),currentToken=useRef(token);callback.current=onJoined;currentToken.current=token;
+ useEffect(()=>{const read=()=>{const hash=new URLSearchParams(location.hash.slice(1)),incoming=hash.get('join');let saved='';try{saved=sessionStorage.getItem(pendingKey)||'';if(incoming&&/^[a-f0-9]{64}$/.test(incoming))sessionStorage.setItem(pendingKey,incoming)}catch{}setToken(incoming&&/^[a-f0-9]{64}$/.test(incoming)?incoming:saved)};read();window.addEventListener('hashchange',read);const retry=()=>setAttempt(n=>n+1);window.addEventListener('online',retry);return()=>{window.removeEventListener('hashchange',read);window.removeEventListener('online',retry)}},[]);
+ useEffect(()=>{if(!token||user?.status!=='approved'||joining.current)return;joining.current=true;const current=token;
+ const clear=()=>{try{if(sessionStorage.getItem(pendingKey)===current)sessionStorage.removeItem(pendingKey)}catch{}const hash=new URLSearchParams(location.hash.slice(1));if(hash.get('join')===current){hash.delete('join');history.replaceState(history.state,'',location.pathname+location.search+(hash.size?'#'+hash.toString():''))}setToken(old=>old===current?'':old)};
+ (async()=>{try{const r=await fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'join-group-link',token:current}),signal:AbortSignal.timeout(15000)});const j:any=await r.json();if(!r.ok){if(r.status===404||r.status===400)clear();throw Error(j.error)}clear();callback.current(j.group);toast.success('Du er med i '+j.name)}catch(e:any){toast.error(e.name==='TypeError'||e.name==='TimeoutError'?'Tilkoblingen er ustabil. Åpne gruppelenken igjen når du har nett.':e.message)}finally{joining.current=false;if(currentToken.current&&currentToken.current!==current)setAttempt(n=>n+1)}})();
+ },[token,user?.id,user?.status,attempt]);
+}
+export default function GroupShare({group,onChange}:{group:any,onChange:()=>void}){
+ const [busy,setBusy]=useState(false),[token,setToken]=useState(group.linkToken||'');useEffect(()=>setToken(group.linkToken||''),[group.id,group.linkToken]);
+ const url=token&&typeof location!=='undefined'?location.origin+'/#join='+token:'';
+ async function getLink(){if(token)return location.origin+'/#join='+token;const r=await fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create-group-link',group:group.id})});const j:any=await r.json();if(!r.ok)throw Error(j.error);setToken(j.token);onChange();return location.origin+'/#join='+j.token}
+ async function share(copy=false){setBusy(true);try{const link=await getLink();if(!copy&&navigator.share)await navigator.share({title:group.name,text:'Bli med i '+group.name+' på Foto Jakt',url:link});else{await navigator.clipboard.writeText(link);toast.success('Gruppelenken er kopiert')}}catch(e:any){if(e.name!=='AbortError')toast.error(e.message||'Kunne ikke dele lenken.')}finally{setBusy(false)}}
+ async function revoke(){setBusy(true);try{const r=await fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'revoke-group-link',group:group.id})});const j:any=await r.json();if(!r.ok)throw Error(j.error);setToken('');onChange();toast.success('Gruppelenken er deaktivert')}catch(e:any){toast.error(e.message)}finally{setBusy(false)}}
+ return <section className="group-share"><h3><Link2 size={17}/>Del gruppen</h3><p>Innloggede deltakere som åpner lenken blir automatisk med i gruppen.</p><div className="actions"><button className="button" disabled={busy} onClick={()=>share()}><Share2 size={17}/>Del gruppen</button><button className="button" disabled={busy} onClick={()=>share(true)}><Copy size={17}/>Kopier lenke</button></div>{url&&<><label className="field">Gruppelenke<input readOnly value={url} onFocus={e=>e.target.select()}/></label><button className="text-action" disabled={busy} onClick={revoke}>Deaktiver lenken</button></>}</section>
+}

@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const source=readFileSync(new URL('../lib/pink-ribbon.ts',import.meta.url),'utf8');
+const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+const {isPinkRibbonActive:active}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+assert.equal(active(Date.parse('2026-09-30T21:59:59.999Z')),false);
+assert.equal(active(Date.parse('2026-09-30T22:00:00Z')),true);
+assert.equal(active(Date.parse('2026-10-02T17:05:55Z')),true);
+assert.equal(active(Date.parse('2026-10-31T22:59:59.999Z')),true);
+assert.equal(active(Date.parse('2026-10-31T23:00:00Z')),false);
+assert.equal(active(Date.parse('2027-10-02T12:00:00Z')),false);
+console.log('Rosa sløyfe: October 2026 and Oslo/DST boundaries passed.');

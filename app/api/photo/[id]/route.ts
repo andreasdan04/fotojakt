@@ -1,0 +1,4 @@
+import {requirePhotoAudience} from '@/lib/groups';
+import {member,admin,one,bucket,wrap,fail} from '@/lib/server';
+export const dynamic='force-dynamic';
+export const GET=wrap(async(req:Request,ctx:any)=>{const m=await member();const {id}=await ctx.params;await requirePhotoAudience(id,m.id);const s=await one('SELECT s.*,c.end FROM submissions s JOIN challenges c ON c.id=s.challenge WHERE s.id=?',id);if(!s)fail('Bildet finnes ikke.',404);const own=await one('SELECT id FROM submissions WHERE challenge=? AND user=?',s.challenge,m.id);let isAdmin=false;try{await admin(req);isAdmin=true}catch{}if(!isAdmin&&!own&&s.end>Date.now())fail('Bildene er skjult til du har levert eller jakten er ferdig.',403);const f=await bucket().get(s.key);if(!f)fail('Bildet er utilgjengelig.',404);return new Response(f.body,{headers:{'Content-Type':'image/jpeg','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})});

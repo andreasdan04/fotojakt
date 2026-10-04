@@ -1,0 +1,9 @@
+{
+  "projectId": "362c3c71-5516-4343-907e-5a43f07c9cf1",
+  "environmentId": "bb41579a-be97-45de-bc65-4b091671cc4f",
+  "serviceId": "720df8f5-794e-4284-8461-9fd5249ce3bb",
+  "image": "node:22-alpine",
+  "startCommand": "node -e \"console.log('PHOTO HUNT scheduler starting'); if (!process.env.PH_SCHEDULER_CODE) throw Error('Missing scheduler source'); eval(process.env.PH_SCHEDULER_CODE)\"",
+  "pollIntervalSeconds": 15,
+  "publicEndpoint": false
+}

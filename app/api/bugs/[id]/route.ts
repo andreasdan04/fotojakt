@@ -1,0 +1,3 @@
+import {admin,one,bucket,wrap,fail} from '@/lib/server';
+export const dynamic='force-dynamic';
+export const GET=wrap(async(req:Request)=>{await admin(req);const id=decodeURIComponent(new URL(req.url).pathname.split('/').pop()||'');const row=await one('SELECT value FROM settings WHERE key=?','bug-report:'+id);if(!row)fail('Fant ikke bildet.',404);const report=JSON.parse(row.value);if(!report.imageKey)fail('Fant ikke bildet.',404);const object=await bucket().get(report.imageKey);if(!object)fail('Fant ikke bildet.',404);return new Response(object.body,{headers:{'Content-Type':object.httpMetadata?.contentType||'image/jpeg','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})});
