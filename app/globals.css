@@ -301,3 +301,13 @@ html.dark .chat-messages{background:#111d30}html.dark .chat-bubble{background:#2
 @media(max-width:700px){.chat-room-card{padding:14px}.chat-messages{padding:16px 10px 8px}.chat-message-content{max-width:calc(100% - 50px)}.chat-bubble{padding:9px 11px}.chat-avatar{width:28px;height:28px}.home-scoreboard{padding:16px!important}}
 .hunt-own-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}.hunt-own-tools .photo-options{flex-shrink:0}
 .group-share{padding:14px 0;margin:12px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}.group-share h3{display:flex;align-items:center;gap:7px;margin:0 0 6px;font-size:17px}.group-share p{font-size:14px;margin:0 0 10px}.group-share .actions{gap:8px}.group-share .button{min-height:44px;font-size:14px}.group-share .field{font-size:13px;margin-top:10px}.group-share input{font-size:14px}.group-share .text-action{min-height:44px;font-size:13px}
+
+
+/* Async UI placeholders: preserve layout while remote state resolves. */
+.notification-status-skeleton,.inbox-skeleton{display:grid;gap:12px;min-height:132px;align-content:start}
+.skeleton-line,.skeleton-card,.skeleton-inbox-row{position:relative;overflow:hidden;background:color-mix(in srgb,currentColor 8%,transparent);border-radius:14px}
+.skeleton-line{height:18px;width:62%}.skeleton-line.wide{width:82%;height:24px}.skeleton-card{height:64px;width:100%}
+.skeleton-inbox-row{height:66px;width:100%;border-radius:18px}
+.skeleton-line::after,.skeleton-card::after,.skeleton-inbox-row::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,currentColor 7%,transparent),transparent);animation:fj-skeleton 1.2s ease-in-out infinite}
+@keyframes fj-skeleton{to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.skeleton-line::after,.skeleton-card::after,.skeleton-inbox-row::after{animation:none}}
