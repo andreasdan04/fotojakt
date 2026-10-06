@@ -6,7 +6,7 @@ import {toast} from 'sonner';
 
 export default function ShareHunt({username,compact=false}:{username?:string,compact?:boolean}){
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false);
- const url='https://familienglum.no/';
+ const url='https://foto-jakt.no/';
  const text=`Bli med på Foto Jakt! 📸 To fotooppgaver hver dag – finn motivet, ta bilde og konkurrer med venner. ${username?`Legg meg til: @${username}`:"Inviter vennene dine og bli med!"}`;
  const message=`${text}\n\n${url}`;
  async function copy(){try{await navigator.clipboard.writeText(message);toast.success('Lenke og brukernavn er kopiert!');setOpen(false)}catch{setOpen(true)}}

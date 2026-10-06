@@ -30,8 +30,8 @@ let d=(await request('guest')).data;const c=d.challenges[0];assert(c&&c.eligible
 if(!d.seasonWelcome){
 assert.equal(d.seasonWelcome,null,'No welcome before the morning release');
 const hour=Number(new Intl.DateTimeFormat('en',{timeZone:'Europe/Oslo',hour:'2-digit',hourCycle:'h23'}).format(Date.now()));
-assert(hour<7||Date.now()<Date.parse('2026-10-01T05:00:00Z')||Number(new Intl.DateTimeFormat('en',{timeZone:'Europe/Oslo',hour:'2-digit',hourCycle:'h23'}).format(d.season.start))>=7);
-console.log('Season welcome stays hidden until the next 07:00 release');
+assert(hour<6||Date.now()<Date.parse('2026-10-01T04:00:00Z')||Number(new Intl.DateTimeFormat('en',{timeZone:'Europe/Oslo',hour:'2-digit',hourCycle:'h23'}).format(d.season.start))>=6);
+console.log('Season welcome stays hidden until the next 06:00 release');
 }else{
 assert.equal(d.seasonWelcome.name,'Testsesong');
 assert.equal(d.seasonWelcome.previous,null);

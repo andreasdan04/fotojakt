@@ -162,6 +162,55 @@
       "when": 1791127020006,
       "tag": "0022_striped_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1791131462811,
+      "tag": "0023_married_centennial",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791144507995,
+      "tag": "0024_closed_tana_nile",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791145417876,
+      "tag": "0025_whole_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1791183547212,
+      "tag": "0026_odd_stone_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1791231813097,
+      "tag": "0027_grey_miss_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1791283567237,
+      "tag": "0028_lethal_black_bird",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1791295352036,
+      "tag": "0029_overjoyed_doctor_octopus",
+      "breakpoints": true
     }
   ]
 }

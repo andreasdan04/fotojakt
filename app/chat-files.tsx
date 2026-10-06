@@ -1,0 +1,13 @@
+'use client';
+import {useRef} from 'react';
+import {ImagePlus,Paperclip} from 'lucide-react';
+import {toast} from 'sonner';
+async function prepare(file:File){
+ if(!file.type.startsWith('image/'))return file;
+ const url=URL.createObjectURL(file);try{const img=new Image();img.src=url;await img.decode();const scale=Math.min(1,1600/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));const ctx=canvas.getContext('2d');if(!ctx)throw Error('Kunne ikke klargjøre bildet.');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('Kunne ikke klargjøre bildet.')),'image/jpeg',.85));return new File([blob],file.name.replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'})}finally{URL.revokeObjectURL(url)}
+}
+export default function ChatFiles({room,count,disabled,onBusy,onUploaded}:any){
+ const gallery=useRef<HTMLInputElement>(null),files=useRef<HTMLInputElement>(null);
+ async function pick(input:HTMLInputElement){const selected=Array.from(input.files||[]);input.value='';if(!selected.length)return;if(selected.length+count>3){toast.error('Opptil tre vedlegg per melding.');return;}onBusy(true);try{for(const original of selected){if(original.size>20000000)throw Error('Velg en mindre fil. Maks 10 MB for filer.');const file=await prepare(original),form=new FormData();form.set('room',room);form.set('id',crypto.randomUUID());form.set('file',file);const r=await fetch('/api/chat/attachments',{method:'POST',body:form,signal:AbortSignal.timeout(45000)}),j:any=await r.json();if(!r.ok)throw Error(j.error);onUploaded(j.attachment);}}catch(e:any){toast.error(e.name==='TypeError'||e.name==='TimeoutError'?'Opplasting mislyktes. Teksten og ferdige vedlegg er beholdt.':e.message)}finally{onBusy(false)}}
+ return <div className="chat-attach-buttons"><input className="sr-only" type="file" ref={gallery} accept="image/*" multiple onChange={e=>pick(e.currentTarget)}/><input className="sr-only" type="file" ref={files} accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.csv,.docx,.xlsx,.pptx,.zip" multiple onChange={e=>pick(e.currentTarget)}/><button type="button" disabled={disabled||count>=3} aria-label="Legg ved bilder fra galleri" onClick={()=>gallery.current?.click()}><ImagePlus size={21}/></button><button type="button" disabled={disabled||count>=3} aria-label="Legg ved filer" onClick={()=>files.current?.click()}><Paperclip size={21}/></button></div>;
+}

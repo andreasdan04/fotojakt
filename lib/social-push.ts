@@ -1,7 +1,7 @@
 import {audienceSql,peerAudienceSql} from './groups';
 import {all,one,run,db} from './server';
 export async function notificationsEnabled(user:string){return (await one('SELECT value FROM settings WHERE key=?','push_disabled:'+user))?.value!=='1'}
-export async function socialPreferences(user:string){const p=await one('SELECT comments,reactions,replies FROM notification_preferences WHERE user=?',user);return {comments:!!p?.comments,reactions:!!p?.reactions,replies:!!p?.replies}}
+export async function socialPreferences(user:string){const p=await one('SELECT comments,reactions,replies,friends,groups FROM notification_preferences WHERE user=?',user);return {comments:!!p?.comments,reactions:!!p?.reactions,replies:!!p?.replies,friends:p?.friends!==0,groups:p?.groups!==0}}
 export async function queueSocial(kind:'comment'|'reaction',submission:string,actor:string,source:string){
  const now=Date.now(),column=kind==='comment'?'comments':'reactions';
  const subs=await all(`SELECT p.id FROM submissions s JOIN members m ON m.id=s.user JOIN notification_preferences n ON n.user=m.id JOIN push_subscriptions p ON p.user=m.id WHERE s.id=? AND s.user!=? AND m.status='approved' AND n.${column}=1 AND NOT EXISTS(SELECT 1 FROM settings off WHERE off.key='push_disabled:'||p.user AND off.value='1')`,submission,actor);

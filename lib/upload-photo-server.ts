@@ -1,4 +1,5 @@
 import {one,run,bucket,fail,json} from './server';
+import {recordUsage} from './usage';
 export const OFFLINE_GRACE=86400000;
 export async function uploadPhoto(req:Request,m:any){
  if(Number(req.headers.get('content-length')||0)>6500000)fail('Bildet er for stort.');
@@ -26,5 +27,5 @@ export async function uploadPhoto(req:Request,m:any){
  const key='photos/'+token+'.jpg';await bucket().put(key,bytes,{httpMetadata:{contentType:'image/jpeg'}});
  const inserted=await run('INSERT OR IGNORE INTO submissions(id,challenge,user,key,submitted,elapsed,valid,note) SELECT ?,?,?,?,?,?,1,? WHERE EXISTS(SELECT 1 FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.id=? AND c.revision=? AND s.end IS NULL) AND EXISTS(SELECT 1 FROM captures WHERE token=? AND used=0)',token,challenge,m.id,key,received,elapsed,'',challenge,cap.revision,token);
  if(!inserted.meta.changes){const saved=await one('SELECT id,elapsed FROM submissions WHERE challenge=? AND user=?',challenge,m.id);if(saved?.id===token)return json({ok:true,elapsed:saved.elapsed});await bucket().delete(key);fail('Oppgaven er avsluttet eller et annet bilde er levert.',409)}
- await run('UPDATE captures SET used=1,taken=? WHERE token=?',finished,token);return json({ok:true,elapsed});
+ await run('UPDATE captures SET used=1,taken=? WHERE token=?',finished,token);try{await recordUsage(m.id,'submit')}catch{console.error('Usage recording unavailable')}return json({ok:true,elapsed});
 }

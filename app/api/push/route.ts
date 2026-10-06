@@ -13,9 +13,10 @@ export const POST=wrap(async(req:Request)=>{origin(req);const m=await pushMember
    await run("UPDATE push_deliveries SET status='skipped' WHERE status='pending' AND subscription IN(SELECT id FROM push_subscriptions WHERE user=?)",m.id);
    await run("UPDATE social_push SET status='skipped' WHERE status='pending' AND subscription IN(SELECT id FROM push_subscriptions WHERE user=?)",m.id);
   }
+  if(!b.enabled)await run("UPDATE invitation_push SET status='skipped' WHERE status='pending' AND recipient=?",m.id);
   return json({ok:true,notificationsEnabled:b.enabled});
  }
- if(b.action==='preferences'){if(!['comments','reactions','replies'].includes(b.kind)||typeof b.enabled!=='boolean')fail('Ugyldig varslingsvalg.');await run(`INSERT INTO notification_preferences(user,${b.kind}) VALUES (?,?) ON CONFLICT(user) DO UPDATE SET ${b.kind}=excluded.${b.kind}`,m.id,b.enabled?1:0);if(!b.enabled)await run("UPDATE social_push SET status='skipped' WHERE status='pending' AND kind=? AND subscription IN (SELECT id FROM push_subscriptions WHERE user=?)",b.kind==='replies'?'reply':b.kind==='comments'?'comment':'reaction',m.id);return json({ok:true,preferences:await socialPreferences(m.id)})}
+ if(b.action==='preferences'){if(!['comments','reactions','replies','friends','groups'].includes(b.kind)||typeof b.enabled!=='boolean')fail('Ugyldig varslingsvalg.');await run(`INSERT INTO notification_preferences(user,${b.kind}) VALUES (?,?) ON CONFLICT(user) DO UPDATE SET ${b.kind}=excluded.${b.kind}`,m.id,b.enabled?1:0);if(!b.enabled)await run("UPDATE social_push SET status='skipped' WHERE status='pending' AND kind=? AND subscription IN (SELECT id FROM push_subscriptions WHERE user=?)",b.kind==='replies'?'reply':b.kind==='comments'?'comment':'reaction',m.id);if(!b.enabled&&['friends','groups'].includes(b.kind))await run("UPDATE invitation_push SET status='skipped' WHERE status='pending' AND recipient=? AND kind=?",m.id,b.kind==='friends'?'friend':'group');return json({ok:true,preferences:await socialPreferences(m.id)})}
  if(b.action==='unsubscribe'){await run('DELETE FROM push_subscriptions WHERE user=? AND endpoint=?',m.id,String(b.endpoint||''));return json({ok:true})}
  if(!pushConfigured())fail('Varsling er ikke klar ennå. Prøv igjen om litt.',503);
  if(b.action==='subscribe'){

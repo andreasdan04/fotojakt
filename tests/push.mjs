@@ -5,6 +5,9 @@ const mf=new Miniflare({modules:(await readdir('dist/server',{recursive:true})).
 assert(req.url.startsWith('https://fcm.googleapis.com/'));assert.equal(req.headers.get('content-encoding'),'aes128gcm');assert(req.headers.get('authorization').startsWith('vapid t='));
 const bytes=Buffer.from(await req.arrayBuffer());const payload=JSON.parse(ece.decrypt(bytes,{version:'aes128gcm',privateKey:receiver,authSecret:auth}).toString());packets.push(payload);return new MFResponse('',{status:responseStatus});}});
 try{const db=await mf.getD1Database('DB');for(const migration of(await readdir('drizzle')).filter(p=>p.endsWith('.sql')).sort())for(const stmt of(await readFile('drizzle/'+migration,'utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(stmt).run();
+// Isolate normal-hunt scheduling from randomized weekly lightning hunts.
+const monday=new Date(new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Oslo'}).format(Date.now())+'T12:00:00Z');monday.setUTCDate(monday.getUTCDate()-(monday.getUTCDay()+6)%7);
+for(let i=0;i<5;i++){const week=new Date(monday.getTime()+i*7*86400000).toISOString().slice(0,10);await db.prepare('INSERT INTO game_hunts(challenge,week,lightning) VALUES (?,?,1)').bind('test-lightning:'+week,week).run();}
 const now=Date.now();await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES (?,?,?,?,?,?,1)').bind('owner','Owner','owner@test.invalid','approved',now-9000000,now-9000000).run();await db.prepare('INSERT INTO seasons(id,name,start) VALUES (?,?,?)').bind('season','Test',now-9000000).run();
 await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES (?,?,?)').bind(crypto.createHash('sha256').update('test-session').digest('hex'),'owner',now+3600000).run();
 const headers={cookie:'hunt_login=test-session','content-type':'application/json'};
@@ -24,9 +27,9 @@ await db.prepare('UPDATE challenges SET daily=1,start=?,end=? WHERE id=?').bind(
 await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated) SELECT ?,user,?,p256dh,auth,created,updated FROM push_subscriptions LIMIT 1').bind('second','https://fcm.googleapis.com/fcm/send/second').run();
 await db.prepare('INSERT INTO submissions(id,challenge,user,key,submitted,elapsed,valid,note) VALUES (?,?,?,?,?,?,0,?)').bind('done','c','owner','test',now,1000,'').run();
 const count=packets.length;
-for(const hour of [10,15,18,20,22]){await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(now-(hour-7)*3600000-1000,now+3600000,'c').run();assert.equal((await tick()).data.sent,0);assert.equal(packets.length,count)}
+for(const hour of [10,15,18,20,22]){await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(now-(hour-6)*3600000-1000,now+3600000,'c').run();assert.equal((await tick()).data.sent,0);assert.equal(packets.length,count)}
 await db.prepare("DELETE FROM submissions WHERE id='done'").run();await db.prepare("DELETE FROM push_subscriptions WHERE id='second'").run();
-await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(now-3*3600000-1000,now+3600000,'c').run();responseStatus=503;assert.equal((await tick()).data.failed,1);assert.equal(packets.at(-1).body,'Lyst på en fotojakt? Formiddagens oppgave er åpen til kl. 15.00.');
+await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(now-4*3600000-1000,now+3600000,'c').run();responseStatus=503;assert.equal((await tick()).data.failed,1);assert.equal(packets.at(-1).body,'Lyst på en fotojakt? Formiddagens oppgave er åpen til kl. 15.00.');
 await db.prepare('INSERT INTO submissions(id,challenge,user,key,submitted,elapsed,valid,note) VALUES (?,?,?,?,?,?,1,?)').bind('done','c','owner','test',now,1000,'').run();await db.prepare('UPDATE push_deliveries SET next_attempt=0').run();const retryCount=packets.length;responseStatus=201;assert.equal((await tick()).data.sent,0);assert.equal(packets.length,retryCount,'completion stops failed-delivery retries');await db.prepare("DELETE FROM submissions WHERE id='done'").run();
 await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(now-2000,now-1,'c').run();assert.equal((await tick()).data.sent,0,'ended challenge is cancelled');
 // Optional social notifications run through the background dispatcher.
@@ -36,7 +39,7 @@ await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES (?,?,?)'
 await db.prepare("INSERT INTO groups(id,name,owner,created) VALUES('test-group','Test','owner',1)").run();
 await db.prepare("INSERT INTO group_members(group_id,user,joined) SELECT 'test-group',id,1 FROM members").run();
 async function social(body,user='actor-session'){const r=await mf.dispatchFetch('https://test.invalid/api/hunt',{method:'POST',headers:{cookie:'hunt_login='+user,'content-type':'application/json'},body:JSON.stringify(body)});return {status:r.status,data:await r.json()}}
-let pref=await(await mf.dispatchFetch('https://test.invalid/api/push',{headers})).json();assert.deepEqual(pref.preferences,{comments:false,reactions:false,replies:false});
+let pref=await(await mf.dispatchFetch('https://test.invalid/api/push',{headers})).json();assert.deepEqual(pref.preferences,{comments:false,reactions:false,replies:false,friends:true,groups:true});
 assert.equal((await social({action:'react',id:'social-photo',emoji:'❤️'})).status,200);assert.equal((await db.prepare('SELECT COUNT(*) n FROM social_push').first()).n,0);
 assert.equal((await post({action:'preferences',kind:'comments',enabled:true})).status,200);
 assert.equal((await social({action:'comment',id:'social-photo',body:'Flott bilde'})).status,200);assert.equal((await tick()).data.sent,1);assert.equal(packets.at(-1).kind,'social');assert(packets.at(-1).body.includes('Actor'));assert(packets.at(-1).url.includes('season=season'));assert.equal((await tick()).data.sent,0);
@@ -60,7 +63,7 @@ await db.prepare('UPDATE challenges SET end=? WHERE id=?').bind(now-1,'c').run()
 await db.prepare("DELETE FROM challenges WHERE id='off-hunt'").run();
 await post({action:'notifications',enabled:true});
 await social({action:'react',id:'social-photo',emoji:'👏'});await post({action:'preferences',kind:'reactions',enabled:false});assert.equal((await tick()).data.sent,0,'opt-out cancels queued delivery');
-pref=await(await mf.dispatchFetch('https://test.invalid/api/push',{headers})).json();assert.deepEqual(pref.preferences,{comments:true,reactions:false,replies:false},'independent choices persist');
+pref=await(await mf.dispatchFetch('https://test.invalid/api/push',{headers})).json();assert.deepEqual(pref.preferences,{comments:true,reactions:false,replies:false,friends:true,groups:true},'independent choices persist');
 assert.equal((await post({action:'preferences',kind:'invalid',enabled:true})).status,400);
 // Replies always reach the inbox; phone delivery is an independent opt-in.
 async function inbox(token){return (await(await mf.dispatchFetch('https://test.invalid/api/notifications',{headers:{cookie:'hunt_login='+token}})).json()).items}
@@ -101,5 +104,22 @@ await db.prepare("UPDATE challenges SET end=? WHERE id='c'").bind(Date.now()+360
 await post({action:'notifications',enabled:false});await db.prepare("INSERT INTO hunt_changes(id,challenge,user,revision,created) VALUES('change-2','c','owner',0,?)").bind(Date.now()).run();await tick();assert.equal(packets.length,afterPoll,'push opt-out respected');assert((await inbox('test-session')).some(x=>x.kind==='word-change'),'bell notice remains');await post({action:'notifications',enabled:true});
 await db.prepare('UPDATE members SET status=? WHERE id=?').bind('blocked','owner').run();assert.equal((await post({action:'subscribe',installed:true,subscription})).status,403);assert.equal((await tick()).data.sent,0);
 await db.prepare('UPDATE members SET status=? WHERE id=?').bind('approved','owner').run();responseStatus=410;await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(now-3000,now+3599000,'c').run();await tick();assert.equal((await db.prepare('SELECT COUNT(*) n FROM push_subscriptions').first()).n,0);
+// Lightning has no planning leak; warning and start reuse the real encrypted dispatcher.
+responseStatus=201;await post({action:'subscribe',installed:true,subscription});
+await db.prepare("UPDATE challenges SET end=? WHERE id NOT LIKE 'lightning:%'").bind(Date.now()-1).run();
+const lightningNow=Date.now(),lightningId='lightning:test';
+await db.prepare('UPDATE push_subscriptions SET created=?').bind(lightningNow-7200000).run();
+await db.prepare('INSERT INTO challenges(id,season,title,start,end,duration,created) VALUES(?,?,?,?,?,?,?)').bind(lightningId,'season','noe mykt',lightningNow+3600000,lightningNow+4800000,1200000,lightningNow-3600000).run();
+await db.prepare('INSERT INTO game_hunts(challenge,lightning) VALUES(?,1)').bind(lightningId).run();
+const lightningPackets=()=>packets.filter(p=>p.tag?.startsWith(lightningId+':'));
+const noLeak=lightningPackets().length;await tick();assert.equal(lightningPackets().length,noLeak,'lightning sends no early planning push');
+let lightningData=await (await mf.dispatchFetch('https://test.invalid/api/hunt',{headers})).json();assert(!lightningData.upcoming.some(c=>c.id===lightningId),'random date hidden before warning');
+await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(lightningNow+1799000,lightningNow+2999000,lightningId).run();
+await tick();assert.equal(lightningPackets().at(-1).kind,'lightning-warning');assert(!lightningPackets().at(-1).body.includes('mykt'));assert.equal(lightningPackets().at(-1).url,'/?lightning=1');const afterWarning=lightningPackets().length;await tick();assert.equal(lightningPackets().length,afterWarning,'warning deduplicates');
+lightningData=await (await mf.dispatchFetch('https://test.invalid/api/hunt',{headers})).json();assert(lightningData.lightningWarning.some(c=>c.id===lightningId));
+await post({action:'notifications',enabled:false});await db.prepare('UPDATE challenges SET start=?,end=? WHERE id=?').bind(Date.now()-1000,Date.now()+1199000,lightningId).run();await tick();assert.equal(lightningPackets().length,afterWarning,'lightning respects opt-out');
+await post({action:'notifications',enabled:true});await tick();assert.equal(lightningPackets().at(-1).kind,'lightning-start');assert(lightningPackets().at(-1).body.includes('noe mykt'));const afterStart=lightningPackets().length;await tick();assert.equal(lightningPackets().length,afterStart,'start deduplicates');
+const unauthorized=await mf.dispatchFetch('https://test.invalid/api/hunt',{method:'POST',headers,body:JSON.stringify({action:'review-bonus',id:'any',status:'approved'})});assert.equal(unauthorized.status,403,'bonus review requires admin session');
+console.log('PASS: lightning date privacy, real encrypted 30-minute warning/start, optional push, deduplication, warning UI and bonus admin authorization.');
 console.log('PASS: encrypted Web Push round-trip, protected scheduler, endpoint validation, scheduled announcement, private countdown, 30-minute reminder, start alert, deduplication, cancellation, membership checks and expired subscriptions.');
 }finally{await mf.dispose()}

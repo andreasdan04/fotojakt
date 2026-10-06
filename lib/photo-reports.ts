@@ -1,12 +1,19 @@
 import {audienceSql,peerAudienceSql,requirePhotoAudience} from './groups';
 import {all,one,db,fail,str} from './server';
 // One review per photo. Freeze the electorate when opened so later registrations
-// cannot move the threshold; each eligible member gets one immutable ballot.
+// cannot change eligibility; each eligible member gets one immutable ballot.
+export const PHOTO_REVIEW_MIN_VOTES=3;
+export const PHOTO_REVIEW_DURATION=3*3600000;
 export async function settleReports(now=Date.now()){
  const d=db();
  const count=(choice:string)=>`(SELECT COUNT(*) FROM photo_votes v WHERE v.submission=photo_reports.submission AND v.choice='${choice}')`;
+ const total=`(${count('invalid')}+${count('valid')})`;
+ const invalidMajority=`(${total}>=3 AND ${count('invalid')}*2>${total})`;
+ const validMajority=`(${total}>=3 AND ${count('valid')}*2>${total})`;
  await d.batch([
-  d.prepare(`UPDATE photo_reports SET status=CASE WHEN ${count('invalid')}>=threshold THEN 'invalid' ELSE 'valid' END WHERE status='open' AND (deadline<=? OR ${count('invalid')}>=threshold OR ${count('valid')}>=threshold)`).bind(now),
+  // Apply the new window to existing open reports as well.
+  d.prepare("UPDATE photo_reports SET threshold=3,deadline=MIN(deadline,created+?) WHERE status='open' AND (threshold!=3 OR deadline>created+?)").bind(PHOTO_REVIEW_DURATION,PHOTO_REVIEW_DURATION),
+  d.prepare(`UPDATE photo_reports SET status=CASE WHEN ${invalidMajority} THEN 'invalid' ELSE 'valid' END WHERE status='open' AND (deadline<=? OR ${invalidMajority} OR ${validMajority})`).bind(now),
   d.prepare("UPDATE submissions SET valid=0,note='Underkjent av deltakerne etter avstemning.' WHERE id IN (SELECT submission FROM photo_reports WHERE status='invalid' AND applied=0)"),
   d.prepare("UPDATE photo_reports SET applied=1 WHERE status!='open' AND applied=0")
  ]);
@@ -34,7 +41,7 @@ export async function reportAction(b:any,user:string,now:number){
   if(await one('SELECT submission FROM photo_reports WHERE submission=?',id))fail('Dette bildet har allerede en avstemning.');
   await d.batch([
    d.prepare(`INSERT OR IGNORE INTO photo_reports(submission,reporter,reason,created,deadline,status,threshold,applied)
-    SELECT s.id,?,?,?,?,'open',MAX(2,(SELECT COUNT(*) FROM members m WHERE status='approved' AND m.id!=s.user AND ${peerAudienceSql('s.user','m.id')})/2+1),0 FROM submissions s WHERE s.id=? AND s.valid=1`).bind(user,reason,now,now+86400000,id),
+    SELECT s.id,?,?,?,?,'open',3,0 FROM submissions s WHERE s.id=? AND s.valid=1`).bind(user,reason,now,now+PHOTO_REVIEW_DURATION,id),
    d.prepare(`INSERT OR IGNORE INTO photo_voters(submission,user) SELECT r.submission,m.id FROM photo_reports r JOIN submissions s ON s.id=r.submission CROSS JOIN members m WHERE r.submission=? AND r.reporter=? AND r.created=? AND m.status='approved' AND m.id!=s.user AND ${peerAudienceSql('s.user','m.id')}`).bind(id,user,now)
   ]);
  }else{

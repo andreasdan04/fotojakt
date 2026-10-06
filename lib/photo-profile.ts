@@ -1,3 +1,4 @@
+import {activeTitles} from './game';
 import {audienceSql,friendCount} from './groups';
 import {visibleReports} from './photo-reports';
 import {badgesFor,achievementsFor} from './badges';
@@ -9,7 +10,7 @@ export async function photoProfile(user:string,viewer:string,isAdmin:boolean,now
  const friendship=user===viewer?null:await one('SELECT status,requester FROM friendships WHERE (a=? AND b=?) OR (a=? AND b=?)',user,viewer,viewer,user);
  const badges=await badgesFor(user,now),avatar=await one('SELECT updated FROM avatars WHERE user=?',user);
  const settings=await profileSettings(user);
- const summary={profile:{...profile,settings,avatarVersion:avatar?.updated,friendCount:settings.showFriendCount?await friendCount(user):null},friendship,canSeePhotos,badges,achievements:await achievementsFor(user,now,viewer,isAdmin)};
+ const summary={profile:{...profile,title:(await activeTitles())[user]||'',settings,avatarVersion:avatar?.updated,friendCount:settings.showFriendCount?await friendCount(user):null},friendship,canSeePhotos,badges,achievements:await achievementsFor(user,now,viewer,isAdmin)};
  if(!canSeePhotos)return {...summary,photos:[],reactions:[],comments:[],reports:[]};
  const access='(c.end<=? OR EXISTS (SELECT 1 FROM submissions own WHERE own.challenge=c.id AND own.user=?) OR ?=1)';
  const args=[user,now,viewer,isAdmin?1:0];

@@ -4,8 +4,19 @@ const mf=new Miniflare({modules:(await readdir('dist/server',{recursive:true})).
 try{
  const db=await mf.getD1Database('DB');for(const migration of(await readdir('drizzle')).filter(p=>p.endsWith('.sql')).sort())for(const stmt of(await readFile('drizzle/'+migration,'utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(stmt).run();
  const now=Date.now(),started=now-3600000;
- for(const user of ['owner','other']){await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES(?,?,?,\'approved\',1,1,1)').bind(user,user,'').run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(crypto.createHash('sha256').update(user).digest('hex'),user,now+86400000).run()}
+ for(const user of ['owner','other']){await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES(?,?,?,\'approved\',1,1,0)').bind(user,user,'').run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(crypto.createHash('sha256').update(user).digest('hex'),user,now+86400000).run()}
  await db.prepare("INSERT INTO seasons(id,name,start) VALUES('s','Test',1)").run();
+ // Push opt-out never gates opening a word, camera preparation or delivery.
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM push_subscriptions').first()).n,0,'ordinary participants have never activated push');
+ await db.prepare("INSERT INTO settings(key,value) VALUES('push_disabled:owner','1')").run();
+ await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily) VALUES('optional-push','s','Testmotiv',?,?,3600000,1,1)").bind(now-1000,now+3600000).run();
+ async function action(body,user='owner'){const r=await mf.dispatchFetch('https://test.invalid/api/hunt',{method:'POST',headers:{cookie:'hunt_login='+user,'content-type':'application/json'},body:JSON.stringify(body)});return {status:r.status,data:await r.json()}}
+ assert.equal((await action({action:'start-daily',id:'optional-push'},'other')).status,200,'ordinary participant who never opted into push can open a word');
+ assert.equal((await action({action:'start-daily',id:'optional-push'})).status,200,'word can be opened with push disabled');
+ const opened=await db.prepare("SELECT started FROM starts WHERE user='owner' AND challenge='optional-push'").first();
+ assert.equal((await action({action:'start-daily',id:'optional-push'})).data.started,opened.started,'reopening retains the original clock without push');
+ const camera=await action({action:'camera',id:'optional-push'});assert.equal(camera.status,200,'camera can be prepared with push disabled');
+ assert.equal((await action({action:'taken',token:camera.data.token})).status,200,'shutter time can be recorded with push disabled');
  const bytes=new Uint8Array(120);bytes.set([255,216,255]);
  async function seed(id,end=now-1000,expires=now+80000000){await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily) VALUES(?,'s','kopp',?,?,3600000,1,1)").bind(id,started,end).run();await db.prepare("INSERT INTO starts(user,challenge,started) VALUES('owner',?,?)").bind(id,started).run();await db.prepare("INSERT INTO captures(token,user,challenge,issued,expires) VALUES(?,'owner',?,?,?)").bind(id,id,started+1000,expires).run()}
  async function upload(id,taken,user='owner'){const form=new FormData();form.set('challenge',id);form.set('token',id);form.set('taken',String(taken));form.set('photo',new Blob([bytes],{type:'image/jpeg'}),'capture.jpg');const encoded=new Response(form);const r=await mf.dispatchFetch('https://test.invalid/api/hunt',{method:'POST',headers:{cookie:'hunt_login='+user,'content-type':encoded.headers.get('content-type')},body:new Uint8Array(await encoded.arrayBuffer())});return {status:r.status,data:await r.json()}}

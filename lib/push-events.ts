@@ -1,5 +1,6 @@
+import {lightningEvents} from './game-rules';
 export const dailyReminders=[
- {hour:7,kind:'start',message:'Formiddagens ord er klart. Start når det passer – lever før kl. 15.00.'},
+ {hour:6,kind:'start',message:'Formiddagens ord er klart. Start når det passer – lever før kl. 15.00.'},
  {hour:10,kind:'daily-10',message:'Lyst på en fotojakt? Formiddagens oppgave er åpen til kl. 15.00.'},
  {hour:14,kind:'daily-14',message:'Én time igjen av formiddagsjakten. Lever før kl. 15.00.'},
  {hour:15,kind:'start-afternoon',message:'Ettermiddagens ord er klart. Du har frem til kl. 00.00.'},
@@ -9,9 +10,10 @@ export const dailyReminders=[
 // Pure event planning; times are server timestamps, never client-provided.
 export function eventsForChallenge(c:any,now:number){
  if(!c.start||c.end<=now)return [];
- // Daily starts are stored at 07:00 Europe/Oslo. All reminders are later on
- // that same local day, after the DST transition (which occurs before 07:00).
- if(c.daily)return dailyReminders.map(r=>{const startHour=c.slot===2?15:7;const due=c.start+(r.hour-startHour)*3600000;return {kind:r.kind,due,expires:Math.min(c.end,due+900000),title:'📸 Foto Jakt',body:r.message,key:`${c.id}:${c.start}:${r.kind}`,challenge:c.id,start:c.start}}).filter(e=>e.due>=c.start&&e.due>=c.created&&e.due<c.end&&e.due<=now&&e.expires>now);
+ if(c.id.startsWith('lightning:'))return lightningEvents(c,now);
+ // Daily starts are stored at 06:00 Europe/Oslo. All reminders are later on
+ // that same local day, after the DST transition (which occurs before 06:00).
+ if(c.daily)return dailyReminders.map(r=>{const startHour=c.slot===2?15:6;const due=c.start+(r.hour-startHour)*3600000;return {kind:r.kind,due,expires:Math.min(c.end,due+900000),title:'📸 Foto Jakt',body:r.message,key:`${c.id}:${c.start}:${r.kind}`,challenge:c.id,start:c.start}}).filter(e=>e.due>=c.start&&e.due>=c.created&&e.due<c.end&&e.due<=now&&e.expires>now);
 
  const clock=new Date(c.start).toLocaleString('nb-NO',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Oslo'});
  const events=[
@@ -23,14 +25,14 @@ export function eventsForChallenge(c:any,now:number){
 }
 
 // Existing season receives the new announcement on the first morning after rollout.
-export const seasonAnnouncementRollout=Date.parse('2026-10-01T05:00:00Z');
+export const seasonAnnouncementRollout=Date.parse('2026-10-01T04:00:00Z');
 export function seasonAnnouncementTime(start:number){
  const earliest=Math.max(start,seasonAnnouncementRollout);
  const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Oslo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(earliest);
  const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
  const local=Date.parse(p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute+':'+p.second+'Z');
  const offset=local-Math.floor(earliest/1000)*1000;
- let target=Date.parse(p.year+'-'+p.month+'-'+p.day+'T07:00:00Z');
+ let target=Date.parse(p.year+'-'+p.month+'-'+p.day+'T06:00:00Z');
  if(target<local)target+=86400000;
  // Recalculate the offset at the target date, including DST changes overnight.
  let value=target-offset;

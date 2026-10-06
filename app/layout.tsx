@@ -10,9 +10,9 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Foto Jakt", statusBarStyle: "default" },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
-    apple: "/icons/apple-touch-icon.png",
+    icon: "/icons/favicon-fj.png",
+    shortcut: "/icons/favicon-fj.png",
+    apple: "/icons/apple-touch-icon-fj.png",
   },
 };
 
@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="nb" suppressHydrationWarning>
-      <body className="antialiased" data-pink-ribbon={String(isPinkRibbonActive())} suppressHydrationWarning><ColorTheme><SeasonalTheme/>{children}</ColorTheme></body>
+      <body className="antialiased" data-pink-ribbon={String(isPinkRibbonActive())} suppressHydrationWarning><ColorTheme><SeasonalTheme/>{children}<footer className="site-footer"><span>© {new Date().getFullYear()} Foto Jakt</span><a href="https://foto-jakt.no">foto-jakt.no</a></footer></ColorTheme></body>
     </html>
   );
 }

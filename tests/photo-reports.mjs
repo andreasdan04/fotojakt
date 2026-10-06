@@ -4,7 +4,7 @@ let aiMode='good',calls=0;const words=['kopp','sykkel','stein','sko','lampe','hu
 const mf=new Miniflare({modules:(await readdir('dist/server',{recursive:true})).filter(p=>p.endsWith('.js')).sort((a,b)=>a==='index.js'?-1:b==='index.js'?1:0).map(p=>({type:'ESModule',path:path.resolve('dist/server',p)})),modulesRoot:path.resolve('dist/server'),compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:['DB'],r2Buckets:['BUCKET'],bindings:{ADMIN_PIN:'9752',OPENAI_API_KEY:'fake-test-key'},cf:false,outboundService:async req=>{assert.equal(req.url,'https://api.openai.com/v1/chat/completions');assert.equal(req.headers.get('authorization'),'Bearer fake-test-key');calls++;const payload=await req.json();assert(payload.messages[0].content.includes('Vestvågøy'));assert.equal(payload.store,false);const dates=JSON.parse(payload.messages[1].content).dates;return new MFResponse(JSON.stringify({choices:[{message:{content:JSON.stringify({words:aiMode==='bad'?['to ord']:aiMode==='english'?['cup','bicycle','stone']:words.slice(0,dates.length)})}}]}),{status:aiMode==='quota'?429:200})}});
 try{
 const db=await mf.getD1Database('DB');for(const migration of(await readdir('drizzle')).filter(p=>p.endsWith('.sql')).sort())for(const stmt of(await readFile('drizzle/'+migration,'utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(stmt).run();
-const now=Date.now(),headers={};for(const user of ['admin','early','late','pending']){await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES (?,?,?,?,?,?,?)').bind(user,user,'',user==='pending'?'pending':'approved',now-10000,now-5000,user==='admin'?1:0).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES (?,?,?)').bind(crypto.createHash('sha256').update(user).digest('hex'),user,now+86400000).run();headers[user]={cookie:'hunt_login='+user+(user==='admin'?'; hunt_admin=admin':''),'content-type':'application/json'};await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated) VALUES (?,?,?,?,?,?,?)').bind(user,user,'https://fcm.googleapis.com/'+user,'k','a',1,1).run();}
+const now=Date.now(),headers={};for(const user of ['admin','early','late','third','pending']){await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES (?,?,?,?,?,?,?)').bind(user,user,'',user==='pending'?'pending':'approved',now-10000,now-5000,user==='admin'?1:0).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES (?,?,?)').bind(crypto.createHash('sha256').update(user).digest('hex'),user,now+86400000).run();headers[user]={cookie:'hunt_login='+user+(user==='admin'?'; hunt_admin=admin':''),'content-type':'application/json'};await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated) VALUES (?,?,?,?,?,?,?)').bind(user,user,'https://fcm.googleapis.com/'+user,'k','a',1,1).run();}
 await db.prepare('INSERT INTO sessions(token,user,expires) VALUES (?,?,?)').bind('admin','admin',now+86400000).run();
 await db.prepare("INSERT INTO groups(id,name,owner,created) VALUES('test-group','Test','admin',1)").run();
 await db.prepare("INSERT INTO group_members(group_id,user,joined) SELECT 'test-group',id,1 FROM members").run();
@@ -20,7 +20,7 @@ assert.equal((await req('pending',{action:'report-photo',id:'p',reason:'test'}))
 await photo('a','admin');
 assert.equal((await req('admin',{action:'report-photo',id:'p',reason:'Bildet viser en skjerm'})).status,200);
 assert.equal((await req('admin',{action:'report-photo',id:'p',reason:'Duplikat'})).status,400);
-let report=(await req('admin')).data.reports.find(r=>r.submission==='p');assert.equal(report.electorate,2);assert.equal(report.threshold,2);assert.equal(report.invalidVotes,0,'report is not a vote');
+let report=(await req('admin')).data.reports.find(r=>r.submission==='p');assert.equal(report.electorate,3);assert.equal(report.threshold,3);assert.equal(report.deadline-report.created,3*3600000);assert.equal(report.invalidVotes,0,'report is not a vote');
 assert.equal((await req('late')).data.reports.length,0,'report must not reveal hidden photo');
 assert.equal((await req('late',undefined,'/api/hunt?profile=early')).data.reports.length,0);
 assert.equal((await req('early',{action:'vote-photo',id:'p',choice:'valid'})).status,403,'owner cannot vote');
@@ -30,7 +30,10 @@ assert.equal((await req('admin',{action:'vote-photo',id:'p',choice:'valid'})).st
 assert.equal((await db.prepare("SELECT valid FROM submissions WHERE id='p'").first()).valid,1,'one vote cannot disqualify');
 await photo('l','late');
 assert.equal((await req('late',{action:'vote-photo',id:'p',choice:'invalid'})).status,200);
-assert.equal((await db.prepare("SELECT valid FROM submissions WHERE id='p'").first()).valid,0);
+assert.equal((await db.prepare("SELECT valid FROM submissions WHERE id='p'").first()).valid,1,'two votes cannot disqualify');
+await photo('t','third');
+assert.equal((await req('third',{action:'vote-photo',id:'p',choice:'valid'})).status,200);
+assert.equal((await db.prepare("SELECT valid FROM submissions WHERE id='p'").first()).valid,0,'two of three is over 50%');
 assert.equal((await req('early')).data.reports.find(r=>r.submission==='p').status,'invalid');
 assert.equal((await req('admin',{action:'result',id:'p',seconds:1,valid:true,note:'Kontrollert av admin'})).status,200);
 assert.equal((await req('early')).data.reports.find(r=>r.submission==='p').status,'admin');
@@ -44,7 +47,17 @@ assert.equal((await db.prepare("SELECT valid FROM submissions WHERE id='l'").fir
 assert.equal((await req('early',{action:'report-photo',id:'a',reason:'Feil motiv'})).status,200);
 assert.equal((await req('early',{action:'vote-photo',id:'a',choice:'valid'})).status,200);
 assert.equal((await req('late',{action:'vote-photo',id:'a',choice:'valid'})).status,200);
+assert.equal((await req('admin')).data.reports.find(r=>r.submission==='a').status,'open','two valid votes still need a third answer');
+assert.equal((await req('third',{action:'vote-photo',id:'a',choice:'invalid'})).status,200);
 assert.equal((await req('admin')).data.reports.find(r=>r.submission==='a').status,'valid');
+// Existing 24-hour reports adopt the 3-hour window; a 50/50 tie preserves the photo.
+await photo('tie','pending');
+await db.prepare("INSERT INTO photo_reports(submission,reporter,reason,created,deadline,status,threshold,applied) VALUES('tie','admin','Test',?,?,'open',12,0)").bind(now-4*3600000,now+20*3600000).run();
+for(const [user,choice] of [['admin','invalid'],['late','invalid'],['third','valid'],['early','valid']])await db.prepare("INSERT INTO photo_votes(submission,user,choice,created) VALUES('tie',?,?,?)").bind(user,choice,now-4*3600000).run();
+await req('admin');
+const tie=await db.prepare("SELECT * FROM photo_reports WHERE submission='tie'").first();assert.equal(tie.status,'valid');assert.equal(tie.threshold,3);assert.equal(tie.deadline-tie.created,3*3600000);
+assert.equal((await db.prepare("SELECT valid FROM submissions WHERE id='tie'").first()).valid,1);
+
 await req('admin',{action:'delete-season',id:'album'});
 for(const table of ['photo_reports','photo_votes','photo_voters'])assert.equal((await db.prepare(`SELECT COUNT(*) n FROM ${table}`).first()).n,0);
 console.log('PASS: report privacy, ownership, eligibility, duplicate reports/ballots, majority, timeout, admin override and deletion.');

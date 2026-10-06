@@ -1,3 +1,4 @@
+import {queueInvitation} from '@/lib/invitation-push';
 import {all,one,run,db,member,admin,origin,wrap,json,fail,str} from '@/lib/server';
 import {limit} from '@/lib/auth';
 import {username} from '@/lib/groups';
@@ -6,7 +7,7 @@ export const GET=wrap(async(req:Request)=>{
  const m=await member(),q=new URL(req.url).searchParams.get('q')?.trim()||'';
  if(q){await limit(req,'search:'+m.id,120);if(q.length<2)return json({users:[]});return json({users:await all("SELECT id,name,username,(SELECT updated FROM avatars WHERE user=members.id) avatarVersion FROM members WHERE status='approved' AND id!=? AND (instr(lower(COALESCE(username,'')),lower(?))>0 OR instr(lower(name),lower(?))>0) ORDER BY username LIMIT 30",m.id,q.slice(0,40),q.slice(0,40))});}
  const friends=await all("SELECT f.*,m.id,m.name,m.username,(SELECT updated FROM avatars WHERE user=m.id) avatarVersion FROM friendships f JOIN members m ON m.id=CASE WHEN f.a=? THEN f.b ELSE f.a END WHERE (f.a=? OR f.b=?) AND m.status='approved'",m.id,m.id,m.id);
- const groups=await all('SELECT g.*,gm.role FROM groups g JOIN group_members gm ON gm.group_id=g.id WHERE gm.user=? ORDER BY g.created',m.id);
+ const groups=await all('SELECT g.*,gm.role,gm.chat_notifications chatNotifications FROM groups g JOIN group_members gm ON gm.group_id=g.id WHERE gm.user=? ORDER BY g.created',m.id);
  for(const g of groups){g.members=await all("SELECT m.id,m.name,m.username,gm.role,(SELECT updated FROM avatars WHERE user=m.id) avatarVersion FROM group_members gm JOIN members m ON m.id=gm.user WHERE gm.group_id=? AND m.status='approved' ORDER BY m.name",g.id);g.canManage=g.owner===m.id||g.role==='admin';g.linkToken=g.canManage?(await one("SELECT l.token FROM group_links l JOIN groups g ON g.id=l.group_id JOIN group_members issuer ON issuer.group_id=g.id AND issuer.user=l.creator JOIN members author ON author.id=l.creator WHERE l.group_id=? AND author.status='approved' AND (g.owner=l.creator OR issuer.role='admin')",g.id))?.token||null:null;g.invites=g.canManage?await all('SELECT i.user,m.name,m.username FROM group_invites i JOIN members m ON m.id=i.user WHERE i.group_id=?',g.id):[];}
  const invitations=await all("SELECT g.id,g.name,m.name inviter FROM group_invites i JOIN groups g ON g.id=i.group_id JOIN group_members issuer ON issuer.group_id=g.id AND issuer.user=i.inviter AND (g.owner=i.inviter OR issuer.role='admin') JOIN members m ON m.id=i.inviter WHERE i.user=? AND m.status='approved'",m.id);
  let reports:any[]=[];try{await admin(req);reports=await all('SELECT r.*,m.name,m.username,m.status,u.name reporterName FROM user_reports r JOIN members m ON m.id=r.target LEFT JOIN members u ON u.id=r.reporter WHERE r.resolved=0 ORDER BY r.created DESC LIMIT 100')}catch{}
@@ -59,7 +60,7 @@ export const POST=wrap(async(req:Request)=>{
     if(!await one("SELECT id FROM members WHERE id=? AND status='approved'",target))fail('Brukeren er ikke tilgjengelig.');
     if(!await one("SELECT a FROM friendships WHERE status='accepted' AND ((a=? AND b=?) OR (a=? AND b=?))",m.id,target,target,m.id))fail('Dere må være venner før du kan invitere.');
     if(await one('SELECT user FROM group_members WHERE group_id=? AND user=?',id,target))fail('Brukeren er allerede med.');
-    await run('INSERT OR IGNORE INTO group_invites(group_id,user,inviter,created) VALUES(?,?,?,?)',id,target,m.id,now);
+    const inserted=await run('INSERT OR IGNORE INTO group_invites(group_id,user,inviter,created) VALUES(?,?,?,?)',id,target,m.id,now);if(inserted.meta.changes)await queueInvitation('group',id,target,m.id,now);
    }else if(b.action==='cancel-invite')await run('DELETE FROM group_invites WHERE group_id=? AND user=?',id,target);
    else await db().batch([db().prepare('DELETE FROM group_members WHERE group_id=? AND user=?').bind(id,target),db().prepare('DELETE FROM group_invites WHERE group_id=? AND inviter=?').bind(id,target)]);
   }return json({ok:true});
@@ -68,7 +69,7 @@ export const POST=wrap(async(req:Request)=>{
  const target=str(b.user,100);if(target===m.id)fail('Velg en annen bruker.');if(!await one("SELECT id FROM members WHERE id=? AND status='approved'",target))fail('Brukeren er ikke tilgjengelig.');
  if(b.action==='report-user'){const reason=str(b.reason,500);if(await one('SELECT id FROM user_reports WHERE reporter=? AND target=? AND resolved=0',m.id,target))fail('Du har allerede en åpen rapport på denne brukeren.');await run('INSERT INTO user_reports(id,reporter,target,reason,created) VALUES(?,?,?,?,?)',crypto.randomUUID(),m.id,target,reason,now);return json({ok:true});}
  const [a,c]=[m.id,target].sort();
- if(b.action==='friend-request'){await run("INSERT OR IGNORE INTO friendships(a,b,requester,status,created) VALUES(?,?,?,'pending',?)",a,c,m.id,now);}
+ if(b.action==='friend-request'){const inserted=await run("INSERT OR IGNORE INTO friendships(a,b,requester,status,created) VALUES(?,?,?,'pending',?)",a,c,m.id,now);if(inserted.meta.changes)await queueInvitation('friend',m.id,target,m.id,now);}
  else if(b.action==='answer-friend'){
   const f=await one("SELECT requester FROM friendships WHERE a=? AND b=? AND status='pending'",a,c);if(!f||f.requester===m.id)fail('Ingen forespørsel å besvare.',403);
   if(b.accept===true)await run("UPDATE friendships SET status='accepted' WHERE a=? AND b=?",a,c);else await run('DELETE FROM friendships WHERE a=? AND b=?',a,c);

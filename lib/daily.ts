@@ -18,12 +18,12 @@ export async function createAlbum(b:any){
  try{
  const slots=days.flatMap(day=>[{day,slot:1},{day,slot:2}]);
  const words=await generateWords(slots.map(x=>x.day),await all('SELECT title,day FROM challenges WHERE daily=1'),slots.map(x=>x.slot===2));
- const descriptions=await describeWords(words);const id=crypto.randomUUID(),d=db();const statements=[d.prepare('INSERT INTO seasons(id,name,start,daily,first_day,last_day) VALUES (?,?,?,1,?,?)').bind(id,name,osloTime(first,7),first,last)];
- slots.forEach(({day,slot},i)=>{const start=osloTime(day,slot===1?7:15),end=slot===1?osloTime(day,15):osloTime(nextDay(day),0);statements.push(d.prepare('INSERT INTO challenges(id,season,title,details,start,end,duration,created,daily,day,slot) VALUES (?,?,?,?,?,?,?,?,1,?,?)').bind(crypto.randomUUID(),id,words[i],descriptions[words[i]],start,end,end-start,now,day,slot))});
+ const descriptions=await describeWords(words);const id=crypto.randomUUID(),d=db();const statements=[d.prepare('INSERT INTO seasons(id,name,start,daily,first_day,last_day) VALUES (?,?,?,1,?,?)').bind(id,name,osloTime(first,6),first,last)];
+ slots.forEach(({day,slot},i)=>{const start=osloTime(day,slot===1?6:15),end=slot===1?osloTime(day,15):osloTime(nextDay(day),0);statements.push(d.prepare('INSERT INTO challenges(id,season,title,details,start,end,duration,created,daily,day,slot) VALUES (?,?,?,?,?,?,?,?,1,?,?)').bind(crypto.randomUUID(),id,words[i],descriptions[words[i]],start,end,end-start,now,day,slot))});
  try{await d.batch(statements)}catch{fail('Datoene ble opptatt av et annet album. Last siden på nytt.',409)}return {ok:true,id,days:days.length};
  }finally{await run("UPDATE settings SET value='0' WHERE key='ai_album_lock' AND value=?",lease)}
 }
-export async function startDaily(id:string,m:any){const now=Date.now();const c=await one('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.id=? AND c.daily=1 AND s.end IS NULL AND c.start<=? AND c.end>?',id,now,now);if(!c)fail('Dagens ord er ikke åpent. Nye jakter åpner kl. 07.00 og 15.00 norsk tid.');if(!m.admin&&!await one('SELECT id FROM push_subscriptions WHERE user=? LIMIT 1',m.id))fail('Aktiver varsler før du starter.');await run('INSERT OR IGNORE INTO starts(challenge,user,started) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM challenges WHERE id=? AND revision=?)',id,m.id,now,id,c.revision);const attempt=await one('SELECT started FROM starts WHERE challenge=? AND user=?',id,m.id);if(!attempt)fail('Oppgaven er slettet.');if((await one('SELECT revision FROM challenges WHERE id=?',id))?.revision!==c.revision)fail('Jaktordet er byttet. Start på nytt.',409);return {ok:true,title:c.title,details:c.details,started:attempt.started};}
+export async function startDaily(id:string,m:any){const now=Date.now();const c=await one('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.id=? AND c.daily=1 AND s.end IS NULL AND c.start<=? AND c.end>?',id,now,now);if(!c)fail('Dagens ord er ikke åpent. Nye jakter åpner kl. 06.00 og 15.00 norsk tid.');await run('INSERT OR IGNORE INTO starts(challenge,user,started) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM challenges WHERE id=? AND revision=?)',id,m.id,now,id,c.revision);const attempt=await one('SELECT started FROM starts WHERE challenge=? AND user=?',id,m.id);if(!attempt)fail('Oppgaven er slettet.');if((await one('SELECT revision FROM challenges WHERE id=?',id))?.revision!==c.revision)fail('Jaktordet er byttet. Start på nytt.',409);return {ok:true,title:c.title,details:c.details,started:attempt.started};}
 
 async function generateWords(days:string[],previous:any[],movement:boolean[]){
  const bank=[...new Set([...NORWEGIAN_WORDS,...await approvedWordBank()])];
@@ -35,8 +35,23 @@ async function generateWords(days:string[],previous:any[],movement:boolean[]){
 
 }
 
+// Move unopened morning hunts in existing albums; keep attempts and past results intact.
+export async function upgradeMorningStart(now=Date.now()){
+ const rows=await all('SELECT c.id,c.day,c.start FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.daily=1 AND c.slot IN (0,1) AND c.day IS NOT NULL AND c.start>? AND s.end IS NULL AND NOT EXISTS (SELECT 1 FROM starts WHERE challenge=c.id)',now);
+ const d=db(),q:any[]=[];
+ for(const r of rows){
+  if(r.start!==osloTime(r.day,7))continue;
+  const start=osloTime(r.day,6);
+  q.push(d.prepare('UPDATE challenges SET start=?,duration=end-? WHERE id=? AND start=? AND start>? AND NOT EXISTS (SELECT 1 FROM starts WHERE challenge=?)').bind(start,start,r.id,r.start,now,r.id));
+ }
+ // Future album starts follow their first morning, without shifting historical seasons.
+ q.push(d.prepare('UPDATE seasons SET start=(SELECT MIN(c.start) FROM challenges c WHERE c.season=seasons.id) WHERE daily=1 AND end IS NULL AND start>? AND EXISTS (SELECT 1 FROM challenges c WHERE c.season=seasons.id AND c.start<seasons.start)').bind(now));
+ await d.batch(q);
+}
+
 // Upgrade only unreleased legacy days. Existing starts, photos and deadlines stay intact.
 export async function upgradeFutureDaily(now=Date.now()){
+ await upgradeMorningStart(now);
  const rows=await all('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.daily=1 AND c.day IS NOT NULL AND c.slot=0 AND c.start>? AND s.end IS NULL ORDER BY c.start',now);
  if(!rows.length)return;
  const history=await all('SELECT title,day FROM challenges WHERE daily=1');

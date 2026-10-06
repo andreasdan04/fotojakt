@@ -1,0 +1,1 @@
+ALTER TABLE `difficulty_polls` ADD `settled_at` integer;

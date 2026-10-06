@@ -21,5 +21,14 @@ let view=await req('player');assert.equal(view.data.difficultyPolls[0].id,poll.i
 const vote=(choice)=>({action:'vote-difficulty',id:poll.id,choice});assert.equal((await req('player',vote('replace'))).status,200);assert.equal((await req('player',vote('keep'))).status,409);assert.equal((await req('blocked',vote('replace'))).status,403);assert.equal((await req('owner',vote('keep'))).status,200);
 await db.prepare('UPDATE difficulty_polls SET deadline=? WHERE id=?').bind(now-1,poll.id).run();await req('owner');assert.equal((await db.prepare('SELECT status FROM difficulty_polls WHERE id=?').bind(poll.id).first()).status,'kept','tie keeps word');assert.equal((await db.prepare("SELECT revision FROM challenges WHERE id='active'").first()).revision,1);
 assert.equal((await req('owner',open('lampe'))).status,200);poll=await db.prepare("SELECT * FROM difficulty_polls WHERE status='open'").first();assert.equal((await req('player',vote('replace'))).status,200);await db.prepare('UPDATE difficulty_polls SET deadline=? WHERE id=?').bind(now-1,poll.id).run();assert.equal((await req('owner',vote('keep'))).status,409,'late vote rejected after settlement');assert.equal((await db.prepare('SELECT status FROM difficulty_polls WHERE id=?').bind(poll.id).first()).status,'replaced');assert.equal((await db.prepare("SELECT title FROM challenges WHERE id='active'").first()).title,'lampe');assert.equal((await db.prepare("SELECT COUNT(*) n FROM starts WHERE challenge='active'").first()).n,0);
+const settled=await db.prepare('SELECT settled_at FROM difficulty_polls WHERE id=?').bind(poll.id).first();assert(settled.settled_at>=now,'actual settlement timestamp recorded');
+for(const status of ['kept','replaced','superseded']){
+ await db.prepare('UPDATE difficulty_polls SET status=?,settled_at=?,deadline=? WHERE id=?').bind(status,Date.now()-3*3600000+60000,now-12*3600000,poll.id).run();
+ assert((await req('owner')).data.difficultyPolls.some(p=>p.id===poll.id),'closed poll visible before three hours from settlement');
+ await db.prepare('UPDATE difficulty_polls SET settled_at=? WHERE id=?').bind(Date.now()-3*3600000-1000,poll.id).run();
+ assert(!(await req('owner')).data.difficultyPolls.some(p=>p.id===poll.id),'closed poll hidden after three hours');
+}
+await db.prepare("UPDATE difficulty_polls SET status='replaced',settled_at=? WHERE id=?").bind(settled.settled_at,poll.id).run();
+
 console.log('PASS: authorized word replacement, duplicate/stale/ended rejection, atomic image/comment/time reset, R2 cleanup, neutral bell notices with push off, blocked privacy, fresh lease and silent future replacement.');
 }finally{await mf.dispose()}

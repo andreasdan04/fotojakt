@@ -1,4 +1,5 @@
 import {all,one,fail,db,bucket,str} from './server';
+import {chatCleanupStatements} from './chat-media';
 // Queue blob cleanup in the same transaction as removing its private metadata.
 // The scheduler retries R2 failures; removed photos become inaccessible immediately.
 export async function cleanDeletedPhotos(){const queued=await all("SELECT key,value FROM settings WHERE key GLOB 'deleted-photo:*' LIMIT 100");for(const row of queued){try{await bucket().delete(row.value);await db().prepare('DELETE FROM settings WHERE key=?').bind(row.key).run()}catch{console.error('Photo cleanup will retry');break}}}
@@ -10,7 +11,7 @@ export function contentDeletionStatements(kind:'photo'|'own-photo'|'challenge'|'
  statements.push(d.prepare(`DELETE FROM favorite_votes WHERE candidate IN (SELECT token FROM favorite_candidates WHERE submission IN (${photos}))`).bind(id));
  statements.push(d.prepare(`DELETE FROM favorite_candidates WHERE submission IN (${photos})`).bind(id));
  if(kind==='season')statements.push(d.prepare('DELETE FROM favorite_polls WHERE season=?').bind(id));
- for(const table of ['photo_votes','photo_voters','photo_reports'])statements.push(d.prepare(`DELETE FROM ${table} WHERE submission IN (${photos})`).bind(id));
+ for(const table of ['bonus_reviews','photo_votes','photo_voters','photo_reports'])statements.push(d.prepare(`DELETE FROM ${table} WHERE submission IN (${photos})`).bind(id));
  statements.push(d.prepare(`DELETE FROM social_push WHERE submission IN (${photos})`).bind(id));
  statements.push(d.prepare(`DELETE FROM comments WHERE submission IN (${photos})`).bind(id));
  statements.push(d.prepare(`DELETE FROM reactions WHERE submission IN (${photos})`).bind(id));
@@ -41,25 +42,36 @@ export async function deleteMember(value:any,actor:string){
  const d=db(),q:any[]=[],photos='SELECT id FROM submissions WHERE user=?',anonymous='deleted:'+crypto.randomUUID();
  const bugRows=await all("SELECT key,value FROM settings WHERE key LIKE 'bug-report:%' AND json_extract(value,'$.user')=?",id);
  for(const row of bugRows){const report=JSON.parse(row.value);if(report.imageKey)q.push(d.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)').bind('deleted-photo:'+report.imageKey,report.imageKey));q.push(d.prepare('DELETE FROM settings WHERE key=?').bind(row.key));}
- q.push(d.prepare('DELETE FROM settings WHERE key IN (?,?)').bind('profile:'+id,'bug-last:'+id));
+ q.push(d.prepare('DELETE FROM settings WHERE key IN (?,?,?,?)').bind('profile:'+id,'bug-last:'+id,'leaderboard_filter:'+id,'active_title:'+id));
+ q.push(d.prepare('DELETE FROM game_awards WHERE user=?').bind(id));
+ q.push(d.prepare('DELETE FROM settings WHERE key=?').bind('dm-read:'+id+':public'));
  q.push(d.prepare("INSERT OR IGNORE INTO settings(key,value) SELECT 'deleted-photo:'||id,key FROM submissions WHERE user=?").bind(id));
  q.push(d.prepare("INSERT OR IGNORE INTO settings(key,value) SELECT 'deleted-photo:avatar:'||user,key FROM avatars WHERE user=?").bind(id));
  q.push(d.prepare(`DELETE FROM favorite_votes WHERE user=? OR candidate IN (SELECT token FROM favorite_candidates WHERE submission IN (${photos})) OR poll IN (SELECT id FROM favorite_polls WHERE group_id IN (SELECT id FROM groups WHERE owner=?))`).bind(id,id,id));
  q.push(d.prepare(`DELETE FROM favorite_candidates WHERE submission IN (${photos}) OR poll IN (SELECT id FROM favorite_polls WHERE group_id IN (SELECT id FROM groups WHERE owner=?))`).bind(id,id));
  q.push(d.prepare('DELETE FROM favorite_polls WHERE group_id IN (SELECT id FROM groups WHERE owner=?)').bind(id));
  q.push(d.prepare('DELETE FROM hunt_changes WHERE user=?').bind(id));q.push(d.prepare('DELETE FROM difficulty_votes WHERE user=?').bind(id));
+ q.push(d.prepare("DELETE FROM invitation_push WHERE recipient=? OR actor=? OR (kind='group' AND source IN (SELECT id FROM groups WHERE owner=?))").bind(id,id,id));
+ const directRooms="SELECT 'dm:'||a||':'||b FROM friendships WHERE a=? OR b=?";
+ q.push(...chatCleanupStatements(`user=? OR room IN (${directRooms}) OR room IN (SELECT id FROM groups WHERE owner=?)`,[id,id,id,id]));
+ q.push(d.prepare("INSERT OR IGNORE INTO settings(key,value) SELECT 'deleted-photo:chat:'||id,key FROM chat_attachments WHERE user=? AND message IS NULL").bind(id));
+ q.push(d.prepare('DELETE FROM chat_attachments WHERE user=? AND message IS NULL').bind(id));
+ q.push(d.prepare(`DELETE FROM chat_reactions WHERE message IN (SELECT id FROM chat_messages WHERE room IN (${directRooms}))`).bind(id,id));
+ q.push(d.prepare(`DELETE FROM chat_messages WHERE room IN (${directRooms})`).bind(id,id));
+ q.push(d.prepare(`DELETE FROM settings WHERE key IN (SELECT 'dm-read:'||a||':dm:'||a||':'||b FROM friendships WHERE a=? OR b=? UNION SELECT 'dm-read:'||b||':dm:'||a||':'||b FROM friendships WHERE a=? OR b=?)`).bind(id,id,id,id));
+ q.push(d.prepare('DELETE FROM chat_push WHERE subscription IN (SELECT id FROM push_subscriptions WHERE user=?) OR message IN (SELECT id FROM chat_messages WHERE user=? OR room IN (SELECT id FROM groups WHERE owner=?))').bind(id,id,id));
  q.push(d.prepare('DELETE FROM chat_reactions WHERE user=? OR message IN (SELECT id FROM chat_messages WHERE user=? OR room IN (SELECT id FROM groups WHERE owner=?))').bind(id,id,id));
  q.push(d.prepare('DELETE FROM chat_messages WHERE user=? OR room IN (SELECT id FROM groups WHERE owner=?)').bind(id,id));q.push(d.prepare('DELETE FROM settings WHERE key=?').bind('chat-rate:'+id));
  q.push(d.prepare('DELETE FROM word_suggestions WHERE user=?').bind(id));
  q.push(d.prepare('DELETE FROM feature_suggestions WHERE user=?').bind(id));
- for(const table of ['photo_votes','photo_voters','photo_reports'])q.push(d.prepare(`DELETE FROM ${table} WHERE submission IN (${photos})`).bind(id));
+ for(const table of ['bonus_reviews','photo_votes','photo_voters','photo_reports'])q.push(d.prepare(`DELETE FROM ${table} WHERE submission IN (${photos})`).bind(id));
  // Preserve the frozen electorate and existing decisions without retaining account identity.
  for(const table of ['photo_votes','photo_voters'])q.push(d.prepare(`UPDATE ${table} SET user=? WHERE user=?`).bind(anonymous,id));
  q.push(d.prepare('UPDATE photo_reports SET reporter=? WHERE reporter=?').bind(anonymous,id));
  q.push(d.prepare(`DELETE FROM social_push WHERE actor=? OR submission IN (${photos}) OR subscription IN (SELECT id FROM push_subscriptions WHERE user=?)`).bind(id,id,id));
  q.push(d.prepare('DELETE FROM push_deliveries WHERE subscription IN (SELECT id FROM push_subscriptions WHERE user=?)').bind(id));
  for(const table of ['comments','reactions'])q.push(d.prepare(`DELETE FROM ${table} WHERE user=? OR submission IN (${photos})`).bind(id,id));
- for(const table of ['submissions','avatars','captures','starts','sessions','login_sessions','local_accounts','push_subscriptions','notification_preferences'])q.push(d.prepare(`DELETE FROM ${table} WHERE user=?`).bind(id));
+ for(const table of ['usage_daily','usage_activity','submissions','avatars','captures','starts','sessions','login_sessions','local_accounts','push_subscriptions','notification_preferences'])q.push(d.prepare(`DELETE FROM ${table} WHERE user=?`).bind(id));
  for(const table of ['group_members','group_invites'])q.push(d.prepare(`DELETE FROM ${table} WHERE user=? OR group_id IN (SELECT id FROM groups WHERE owner=?)`).bind(id,id));
  q.push(d.prepare('DELETE FROM group_invites WHERE inviter=?').bind(id));
  q.push(d.prepare('DELETE FROM group_links WHERE creator=? OR group_id IN (SELECT id FROM groups WHERE owner=?)').bind(id,id));

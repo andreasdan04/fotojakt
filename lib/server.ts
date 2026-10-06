@@ -1,3 +1,4 @@
+export {rank} from './scoring';
 import {env} from 'cloudflare:workers';
 import {currentUser} from './auth';
 export const db=()=>{const d=(env as any).DB;if(!d)throw Error('Databasen er midlertidig utilgjengelig. Prøv igjen.');return d};
@@ -13,4 +14,3 @@ export function origin(req:Request){const o=req.headers.get('origin');if(o&&o!==
 export const json=(data:any,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 export const wrap=(fn:any)=>async(req:Request,ctx:any)=>{try{return await fn(req,ctx)}catch(e:any){console.error('Foto Jakt',e.message);return json({error:e.status?e.message:'Noe gikk galt. Prøv igjen om litt.'},e.status||500)}};
 export const str=(v:any,n=150)=>{if(typeof v!=='string'||!v.trim()||v.trim().length>n)fail('Fyll inn gyldig tekst.');return v.trim()};
-export function rank(challenges:any[],submissions:any[],members:any[],now:number){return members.map(m=>{let points=0,wins=0,done=0,missed=0,streak=0,best=0,total=0;for(const c of challenges.filter(c=>c.start&&c.start<=now&&(c.daily?m.approved<c.end:m.approved<=c.start)).sort((a,b)=>a.start-b.start)){const ordered=submissions.filter(s=>s.challenge===c.id&&s.valid).sort((a,b)=>a.elapsed-b.elapsed||a.submitted-b.submitted||a.id.localeCompare(b.id));const s=ordered.find(s=>s.user===m.id);if(s){done++;total+=s.elapsed;best=best?Math.min(best,s.elapsed):s.elapsed;}if(c.end<=now){if(s){streak++;const place=ordered.findIndex(x=>x.user===m.id);points+=Math.max(1,[10,7,5,3,2][place]||1);if(place===0)wins++}else{missed++;streak=0}}}return {id:m.id,name:m.name,points,wins,done,missed,streak,best,average:done?Math.round(total/done):0}}).sort((a,b)=>b.points-a.points||b.wins-a.wins||a.average-b.average)}

@@ -37,6 +37,10 @@ assert.equal((await req('admin',form(cap.data.token))).status,200,'new photo acc
 assert((await db.prepare("SELECT elapsed FROM submissions WHERE user='admin'").first()).elapsed>=60000,'retake includes time since first reveal');
 assert.equal((await req('early',{action:'delete-own-photo',id:'photo-early'})).status,200,'all approved users can delete own photo');
 assert.equal((await db.prepare("SELECT started FROM starts WHERE user='early'").first()).started,now-60000);
+await db.prepare("DELETE FROM push_subscriptions WHERE user='early'").run();
+assert.equal((await req('early',{action:'camera',id:'hunt'})).status,200,'camera works for non-admin without push subscription');
+await db.prepare("INSERT INTO settings(key,value) VALUES('push_disabled:early','1')").run();
+assert.equal((await req('early',{action:'camera',id:'hunt'})).status,200,'camera works when push explicitly declined');
 await db.prepare("UPDATE challenges SET end=? WHERE id='hunt'").bind(now-1).run();
 assert.equal((await req('early',{action:'camera',id:'hunt'})).status,400,'expired hunt cannot retake');
 console.log('PASS: own-photo deletion for approved users, privacy, original start preserved, elapsed time grows on retake, old token rejected, related content cleanup and deadline enforcement.');

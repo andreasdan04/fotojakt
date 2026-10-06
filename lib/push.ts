@@ -1,9 +1,13 @@
+import {ensureGames,processBonuses} from './game';
+import {processChatReviews} from './chat-moderation';
+import {dispatchInvitations} from './invitation-push';
 import {ensureWordDescriptions} from './word-descriptions';
 import {settleDifficultyPolls} from './difficulty-polls';
 import {dispatchWordChanges} from './replace-word';
 import {applyApprovedWords} from './approved-words';
 import {upgradeFutureDaily} from './daily';
 import {settleReports} from './photo-reports';
+import {dispatchChat} from './chat-notifications';
 import {dispatchSocial,notificationsEnabled} from './social-push';
 import {cleanDeletedPhotos} from './deletion';
 import {env} from 'cloudflare:workers';
@@ -34,7 +38,7 @@ export async function dispatchPush(){
  const lock=await run('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(value AS INTEGER)<?','push_scheduler_lock',lease,now);
  if(!lock.meta.changes)return {busy:true,sent:0};
  try{
-  await settleDifficultyPolls(now);await upgradeFutureDaily(now);await applyApprovedWords(now);await ensureWordDescriptions(now);await cleanDeletedPhotos();await settleReports();
+  await ensureGames(now);await processBonuses(now);await settleDifficultyPolls(now);await upgradeFutureDaily(now);await applyApprovedWords(now);await ensureWordDescriptions(now);await cleanDeletedPhotos();await settleReports();
   if(!pushConfigured())throw Error('Push keys are missing');
   await run('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value','push_scheduler_seen',String(now));
   const challenges=await all('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE s.end IS NULL AND c.start IS NOT NULL AND c.end>?',now);
@@ -70,13 +74,13 @@ export async function dispatchPush(){
     // Recheck immediately before sending, including retries and every device.
     const eligible=await one('SELECT p.id FROM push_subscriptions p JOIN members m ON m.id=p.user WHERE p.id=? AND m.status=? AND (?=1 OR NOT EXISTS (SELECT 1 FROM submissions s WHERE s.challenge=? AND s.user=p.user))',sub.id,'approved',0,event.challenge);
     if(!eligible||!await notificationsEnabled(sub.user)||event.expires<=Date.now()){await run('UPDATE push_deliveries SET status=? WHERE id=?','skipped',id);return;}
-    const status=await sendPush(sub,{title:event.title,body:event.body,tag:event.key,url:event.kind==='season-start'?'/':'/?hunt='+encodeURIComponent(event.challenge),kind:event.kind,expires:event.expires},Math.ceil((event.expires-Date.now())/1000));
+    const status=await sendPush(sub,{title:event.title,body:event.body,tag:event.key,url:event.kind.startsWith('lightning-')?'/?lightning=1':event.kind==='season-start'?'/':'/?hunt='+encodeURIComponent(event.challenge),kind:event.kind,expires:event.expires},Math.ceil((event.expires-Date.now())/1000));
     if(status===404||status===410){await run('DELETE FROM push_subscriptions WHERE id=?',sub.id);await run('UPDATE push_deliveries SET status=?,last_status=? WHERE id=?','expired',status,id);return;}
     if(status>=200&&status<300){await run('UPDATE push_deliveries SET status=?,sent=?,last_status=?,attempts=attempts+1 WHERE id=?','sent',Date.now(),status,id);sent++;}
     else{await run('UPDATE push_deliveries SET attempts=attempts+1,last_status=?,next_attempt=? WHERE id=?',status,Date.now()+60000,id);failed++;}
    }catch(error:any){console.error('Push delivery failed:',String(error.message).replace(/https?:\/\/\S+/g,'[endpoint]'));await run('UPDATE push_deliveries SET attempts=attempts+1,next_attempt=? WHERE id=?',Date.now()+60000,id);failed++;}
   }))}
   await run('DELETE FROM push_deliveries WHERE created<? AND challenge IN (SELECT id FROM challenges WHERE end<?)',now-30*86400000,now);
-  const social=await dispatchSocial(sendPush),changes=await dispatchWordChanges(sendPush);return {sent:sent+social.sent+changes.sent,failed:failed+social.failed+changes.failed,remaining:Math.max(0,selected.length-20),nextCheckMs:15000};
+  const invitations=await dispatchInvitations(sendPush),chat=await dispatchChat(sendPush),social=await dispatchSocial(sendPush),changes=await dispatchWordChanges(sendPush);await processChatReviews(now);return {sent:sent+social.sent+changes.sent+chat.sent+invitations.sent,failed:failed+social.failed+changes.failed+chat.failed+invitations.failed,remaining:Math.max(0,selected.length-20),nextCheckMs:15000};
  }finally{await run('UPDATE settings SET value=? WHERE key=? AND value=?','0','push_scheduler_lock',lease)}
 }

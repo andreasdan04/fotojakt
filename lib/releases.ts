@@ -1,7 +1,34 @@
 // One player-facing version per Oslo calendar day. Add same-day work to its summary.
 // Keep the player-facing version number stable during each Oslo calendar day.
 export const releases=[
+ {version:51,date:'2026-10-06',summary:'Gruppe- og vennechatter, bildedeling, adminoppdateringer og morgenjakt fra kl. 06.00.',changes:[
+ {type:'Endring' as const,text:'Bildeavstemninger varer nå opptil 3 timer og trenger minst 3 svar. Over 50 % av svarene må være gyldig eller ugyldig for å avgjøre bildet. Uten flertall beholdes bildet. Et underkjent bilde kan tas på nytt før jaktens frist; den opprinnelige starttiden beholdes.'},
+ {type:'Endring' as const,text:'Morgenjakten åpner nå kl. 06.00 norsk tid og varer til kl. 15.00. Morgenvarsel, nedtelling og planlagte jakter følger den nye tiden.'},
+ {type:'Bugfiks' as const,text:'Gruppedeling, kopierte invitasjoner og feltet Gruppelenke bruker nå foto-jakt.no, også når appen åpnes fra det gamle domenet. Eksisterende gruppeinvitasjoner beholder samme invitasjonskode.'},
+ {type:'Nyhet' as const,text:'Admin kan skrive /update i felleschatten og publisere en uthevet oppdatering med overskrift, informasjon og valgfritt ikon. Kompakte kort viser avsender og tidspunkt, og passer lys og mørk modus.'},
+ {type:'Nyhet' as const,text:'Del jaktbilder til chattene i appen etter avsluttet jakt. Chat støtter bilder fra galleri og opptil tre vedlegg per melding, med lenker som klikkbare kort. Vedlegg følger chattilgangen.'},
+ {type:'Nyhet' as const,text:'AI kontrollerer nye chatmeldinger og bilder i bakgrunnen. Mulig rasisme, trusler og farlig innhold, usikre vurderinger og innhold som ikke kan leses fullt ut sendes til Chatkontroll i admin. Meldinger fjernes aldri automatisk.'},
+ {type:'Bugfiks' as const,text:'Samtalekort passer nå til mobilbredden. Siste melding kuttes med … uten å utvide siden. Lesestatus vises bare inne i chatten; uleste samtaler har et rødt varselmerke på chatikonet.'},
+ {type:'Nyhet' as const,text:'Samtalelisten viser siste melding og avsender, med tydelig markering av uleste meldinger. Begge sider kan se lesestatus; grupper viser hvem som har lest. Varslingssenteret viser «FJ har mottatt en melding fra [navn]» og åpner den aktuelle meldingen ved trykk.'},
+ {type:'Nyhet' as const,text:'Diskusjon har knapper for Gruppechatter og Vennechatter. Private samtaler med godkjente venner, med ulest-teller og meldinger i bjellen. Sist aktive samtale ligger øverst, også når du selv sender.'},
+ {type:'Endring' as const,text:'Ekstern bildedeling og nedlasting fra delingsknappen er erstattet med Del til chat. Deling oppretter ingen offentlig bildelenke. Sesongkort som deles utenfor appen inneholder bare statistikk, ikke jaktbilder.'},
+ {type:'Endring' as const,text:'Invitasjoner til Foto Jakt bruker foto-jakt.no.'}
+ ]},
+ {version:50,date:'2026-10-05',summary:'Ukentlig lynjakt, frivillige bonusoppdrag, titler og hemmelige achievements.',changes:[
+ {type:'Endring' as const,text:'Copyright med foto-jakt.no nederst på alle sidene. Rapporter en bug og Administrer på profilen har tydelige knapperammer. Bildefeeden har bedre avstand mellom overskriftsrader, bilder og jakter.'},
+ {type:'Nyhet' as const,text:'Ukentlig lynjakt på et serverlagret, tilfeldig tidspunkt, med 30 minutters forvarsel, 20 minutters jakt, egen toppliste og 1–3 bonuspoeng. Første lynjakt er 6. oktober kl. 17.00. Push er frivillig.'},
+ {type:'Nyhet' as const,text:'Enkelte dagsjakter får et frivillig bonusoppdrag verdt 2 poeng. Bildet leveres som vanlig; AI vurderer bonusen etterpå. Usikre vurderinger og AI-feil sendes til manuell vurdering hos admin.'},
+ {type:'Nyhet' as const,text:'Lås opp sjeldne titler og velg én på profilen. Tittelen vises ved navnet i poengtavlen, kommentarer og profil. Hemmelige achievements skjuler navn og krav som ??? til de låses opp med en popup.'},
+ {type:'Bugfiks' as const,text:'Fjernet et gammelt varslingskrav som hindret deltakere uten pushabonnement i å trykke «Start og vis ordet». Du kan nå starte jakten, ta bilde og levere uten å aktivere varsler. Varsler velges frivillig i innstillingene.'}
+ ]},
  {version:49,date:'2026-10-04',summary:'Tryggere levering og enklere jaktord.',changes:[
+ {type:'Bugfiks' as const,text:'Administratorkontoen kan nå logge inn fra den vanlige innloggingssiden med samme PIN som på adminsiden. Andre kontoer beholder sin personlige PIN.'},
+ {type:'Endring' as const,text:'Den blå FJ-logoen brukes nå i appens topp, på innlogging, som app- og nettleserikon og i varsler. Delte gruppeinvitasjoner viser navnet på gruppen og forklarer hvordan man blir med, også ved kopiering.'},
+ {type:'Endring' as const,text:'Profilen har fått en kompakt utforming med resultater, bilder og merker. Avsluttede jakter viser tilgjengelige vinnerbilder i listen. Venneforespørsler og gruppeinvitasjoner kan godtas eller avslås direkte i varslingssenteret. Varslingsinnstillinger åpnes direkte fra bjellen, og venneforespørsler og gruppeinvitasjoner kan sende push når varsler er aktivert.'},
+ {type:'Nyhet' as const,text:'Hovedpoengtavlen rangerer alle spillerne i appen. Du kan velge en egen poengtavle for gruppene dine, med plasseringer og poeng innen gruppen. Filtervalget lagres på kontoen din.'},
+ {type:'Endring' as const,text:'Avsluttede avstemninger om vanskelige jaktord skjules fra forsiden tre timer etter at de er avsluttet.'},
+ {type:'Endring' as const,text:'Ingen spørsmål eller påminnelser om å aktivere varsler ved oppstart. Varsler velges selv i profilinnstillingene, og kameraet kan brukes uten pushvarsler.'},
+ {type:'Nyhet' as const,text:'Gruppechatter viser en rød teller for uleste meldinger, opptil 9+. Hver deltaker kan slå pushvarsler av eller på for hver gruppe. Uleste meldinger vises fortsatt i appen og i bjellen.'},
  {type:'Nyhet' as const,text:'Gruppeeiere og gruppeadministratorer kan dele en gruppelenke fra gruppeinnstillingene. Innloggede deltakere som åpner lenken blir lagt til automatisk. Lenken kan deaktiveres.'},
  {type:'Endring' as const,text:'Egne bilder kan slettes eller tas på nytt fra menyen med tre prikker. Tiden fortsetter fra da ordet først ble åpnet.'},
  {type:'Endring' as const,text:'Diskusjon får en oversikt over samtaler og chat som fyller skjermen. Egne meldinger vises til høyre, andres til venstre. Du kan svare på meldinger og bruke reaksjoner.'},
