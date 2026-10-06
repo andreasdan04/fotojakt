@@ -24,7 +24,26 @@ export function validateSubscription(s:any){
  if(!/^[A-Za-z0-9_-]{87}$/.test(s.keys?.p256dh||'')||!/^[A-Za-z0-9_-]{22}$/.test(s.keys?.auth||''))fail('Ugyldige varslingsnøkler.');
  return s;
 }
+// Native app devices. The Expo push token is stored as the endpoint; p256dh/auth are empty.
+export function validateExpoToken(token:any){
+ if(typeof token!=='string'||!/^Expo(nent)?PushToken\[[A-Za-z0-9_-]{10,200}\]$/.test(token))fail('Ugyldig varslingstoken.');
+ return token as string;
+}
+// Android only shows notifications on channels the app has created: 'hunts' and 'social'.
+const SOCIAL_KINDS=['chat','invitation','social'];
+async function sendExpoPush(sub:any,payload:any,ttl:number){
+ const headers:Record<string,string>={'Content-Type':'application/json',Accept:'application/json'};
+ if((env as any).EXPO_ACCESS_TOKEN)headers.Authorization=`Bearer ${(env as any).EXPO_ACCESS_TOKEN}`;
+ const message={to:validateExpoToken(sub.endpoint),title:payload.title,body:payload.body,data:{url:payload.url,kind:payload.kind,expires:payload.expires},ttl:Math.max(0,Math.floor(ttl)),priority:'high',sound:'default',collapseId:payload.tag,tag:payload.tag,channelId:SOCIAL_KINDS.includes(payload.kind)?'social':'hunts'};
+ const res=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers,body:JSON.stringify(message),redirect:'manual',signal:AbortSignal.timeout(8000)});
+ if(!res.ok){await res.body?.cancel();return res.status}
+ // Map the push ticket onto the Web Push statuses every dispatcher already handles: 410 removes the device.
+ const ticket=((await res.json().catch(()=>null)) as any)?.data;
+ if(ticket?.status==='ok')return 201;
+ return ticket?.details?.error==='DeviceNotRegistered'?410:ticket?.details?.error==='MessageRateExceeded'?429:502;
+}
 export async function sendPush(sub:any,payload:any,ttl=300){
+ if(sub.provider==='expo')return sendExpoPush(sub,payload,ttl);
  if(!pushConfigured())throw Error('Push is not configured');
  validateSubscription({endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth}});
  const req=webpush.generateRequestDetails({endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth}},JSON.stringify(payload),{vapidDetails:{subject:'https://photo-hunt-family.andreasdan04.chatgpt.site',publicKey:(env as any).VAPID_PUBLIC_KEY,privateKey:(env as any).VAPID_PRIVATE_KEY},TTL:Math.max(0,Math.floor(ttl)),urgency:'high',contentEncoding:'aes128gcm'});

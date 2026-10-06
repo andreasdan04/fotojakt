@@ -1,7 +1,7 @@
 import {socialPreferences,notificationsEnabled} from '@/lib/social-push';
 import {env} from 'cloudflare:workers';
 import {identity,origin,json,wrap,fail,one,run} from '@/lib/server';
-import {validateSubscription,pushConfigured,sendPush,notificationStatus} from '@/lib/push';
+import {validateSubscription,validateExpoToken,pushConfigured,sendPush,notificationStatus} from '@/lib/push';
 export const dynamic='force-dynamic';
 async function pushMember(){const u=await identity();const m=await one('SELECT * FROM members WHERE id=?',u.userId);if(!m||!['pending','approved'].includes(m.status))fail('Tilgangen er ikke godkjent.',403);return m}
 export const GET=wrap(async()=>{const m=await pushMember();return json({notificationsEnabled:await notificationsEnabled(m.id),preferences:await socialPreferences(m.id),publicKey:(env as any).VAPID_PUBLIC_KEY||null,...await notificationStatus()})});
@@ -18,6 +18,15 @@ export const POST=wrap(async(req:Request)=>{origin(req);const m=await pushMember
  }
  if(b.action==='preferences'){if(!['comments','reactions','replies','friends','groups'].includes(b.kind)||typeof b.enabled!=='boolean')fail('Ugyldig varslingsvalg.');await run(`INSERT INTO notification_preferences(user,${b.kind}) VALUES (?,?) ON CONFLICT(user) DO UPDATE SET ${b.kind}=excluded.${b.kind}`,m.id,b.enabled?1:0);if(!b.enabled)await run("UPDATE social_push SET status='skipped' WHERE status='pending' AND kind=? AND subscription IN (SELECT id FROM push_subscriptions WHERE user=?)",b.kind==='replies'?'reply':b.kind==='comments'?'comment':'reaction',m.id);if(!b.enabled&&['friends','groups'].includes(b.kind))await run("UPDATE invitation_push SET status='skipped' WHERE status='pending' AND recipient=? AND kind=?",m.id,b.kind==='friends'?'friend':'group');return json({ok:true,preferences:await socialPreferences(m.id)})}
  if(b.action==='unsubscribe'){await run('DELETE FROM push_subscriptions WHERE user=? AND endpoint=?',m.id,String(b.endpoint||''));return json({ok:true})}
+ if(b.action==='subscribe-native'){
+  const token=validateExpoToken(b.token),now=Date.now();
+  let old=await one('SELECT * FROM push_subscriptions WHERE endpoint=?',token);
+  // The phone belongs to whoever is signed in now. Never carry another account's queued notifications over.
+  if(old&&old.user!==m.id){await run('DELETE FROM push_subscriptions WHERE id=?',old.id);old=null}
+  if(!old){const count=await one('SELECT COUNT(*) n FROM push_subscriptions WHERE user=?',m.id);if(count.n>=10)fail('Du har nådd grensen på ti enheter.');}
+  const id=old?.id||crypto.randomUUID();await run("INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated,provider) VALUES (?,?,?,'','',?,?,'expo') ON CONFLICT(endpoint) DO UPDATE SET updated=excluded.updated",id,m.id,token,old?.created||now,now);
+  return json({ok:true,id,...await notificationStatus()});
+ }
  if(!pushConfigured())fail('Varsling er ikke klar ennå. Prøv igjen om litt.',503);
  if(b.action==='subscribe'){
   if(b.installed!==true)fail('Åpne appen fra hjemskjermen for å aktivere varsler.');
