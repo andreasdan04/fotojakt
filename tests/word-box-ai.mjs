@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';
 import {readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -14,7 +15,8 @@ const mf=new Miniflare({modules:(await readdir('dist/server',{recursive:true})).
 }});
 try{
  const db=await mf.getD1Database('DB'),now=Date.now();for(const file of(await readdir('drizzle')).filter(x=>x.endsWith('.sql')).sort())for(const sql of(await readFile('drizzle/'+file,'utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(sql).run();
- for(const [id,isAdmin,signed] of [['staff',1,true],['unsigned',1,false],['player',0,false]]){await db.prepare("INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES(?,?,?,'approved',1,1,?)").bind(id,'Private Name','private@example.invalid',isAdmin).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(hash(id),id,now+86400000).run();if(isAdmin)await db.prepare('INSERT INTO sessions(token,user,expires) VALUES(?,?,?)').bind(hash('admin-'+id),id,now+86400000).run();if(signed)await db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('admin-agreement:'+id,JSON.stringify({version:'2026-10-07.1',accepted:now})).run()}
+ for(const [id,isAdmin,signed] of [['staff',1,true],['unsigned',1,false],['player',0,false]]){await db.prepare("INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES(?,?,?,'approved',1,1,?)").bind(id,'Private Name','private@example.invalid',isAdmin).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(hash(id),id,now+86400000).run();if(isAdmin)await db.prepare('INSERT INTO sessions(token,user,expires) VALUES(?,?,?)').bind(hash('admin-'+id),id,now+86400000).run();if(signed)await db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('admin-agreement:'+id,JSON.stringify({version:'2026-10-07.1',accepted:now})).run();if(signed)await seedStaffAcceptance(db,id,now)}
+ await db.prepare("INSERT INTO settings(key,value) VALUES('owner','staff')").run();
  await db.prepare("INSERT INTO word_suggestions(id,user,word,created) VALUES('w','player','testmotiv',1)").run();
  const req=(who,url,body)=>mf.dispatchFetch('https://test.invalid'+url,{method:body?'POST':'GET',headers:{...(who?{cookie:'hunt_login='+who+'; hunt_admin=admin-'+who}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
  const dict='/api/word-dictionary?id=w';assert.equal((await req(null,dict)).status,401);for(const who of ['player','unsigned'])assert.equal((await req(who,dict)).status,403);assert.equal(dictionaryCalls,0);

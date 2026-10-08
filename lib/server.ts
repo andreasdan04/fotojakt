@@ -1,7 +1,7 @@
 export {rank} from './scoring';
 import {env} from 'cloudflare:workers';
 import {currentUser,digest} from './auth';
-import {ADMIN_AGREEMENT_VERSION} from './admin-agreement';
+import {roleFor,acceptanceFor} from './staff';
 export const db=()=>{const d=(env as any).DB;if(!d)throw Error('Databasen er midlertidig utilgjengelig. Prøv igjen.');return d};
 export const bucket=()=>{const b=(env as any).BUCKET;if(!b)throw Error('Bildelagringen er midlertidig utilgjengelig.');return b};
 export const one=async(sql:string,...args:any[])=>db().prepare(sql).bind(...args).first();
@@ -10,8 +10,10 @@ export const run=async(sql:string,...args:any[])=>db().prepare(sql).bind(...args
 export function fail(message:string,status=400):never{throw Object.assign(Error(message),{status})}
 export async function identity(){const u=await currentUser();if(!u)fail('Logg inn først.',401);return u!}
 export async function member(){const u=await identity();const m=await one('SELECT * FROM members WHERE id=?',u.userId);if(!m||m.status!=='approved')fail('Du må godkjennes av Andreas først.',403);return m}
-export async function adminSession(req:Request){const u=await identity();const token=req.headers.get('cookie')?.match(/(?:^|; )hunt_admin=([^;]+)/)?.[1];const s=token&&await one('SELECT s.user FROM sessions s JOIN members m ON m.id=s.user WHERE s.token=? AND s.expires>? AND m.admin=1 AND m.status=?',await digest(token),Date.now(),'approved');if(!s||s.user!==u.userId)fail('Logg inn med din egen administratorkonto.',403);return u}
-export async function admin(req:Request){const u=await adminSession(req);const agreement=await one('SELECT value FROM settings WHERE key=?','admin-agreement:'+u.userId);if(!agreement||JSON.parse(agreement.value).version!==ADMIN_AGREEMENT_VERSION||JSON.parse(agreement.value).revoked)fail('Godkjenn taushetserklæringen før du åpner administrasjonen.',403);return u}
+export async function adminSession(req:Request){const u=await identity();const token=req.headers.get('cookie')?.match(/(?:^|; )hunt_admin=([^;]+)/)?.[1];const sessionToken=token?await digest(token):'';const s=token&&await one('SELECT s.user FROM sessions s JOIN members m ON m.id=s.user WHERE s.token=? AND s.expires>? AND m.status=?',sessionToken,Date.now(),'approved');const role=await roleFor(u.userId);if(!s||s.user!==u.userId||role==='player')fail('Logg inn med din egen teamkonto på forsiden.',403);return {...u,role,sessionToken}}
+export async function staff(req:Request){const u=await adminSession(req);if(!await acceptanceFor(u.userId))fail('Signer gjeldende taushetserklæring før du åpner administrasjonen.',403);return u}
+export async function admin(req:Request){const u=await staff(req);if(!['owner','administrator'].includes(u.role))fail('Denne delen er for administrator og eier.',403);return u}
+export async function headJudge(req:Request){const u=await staff(req);if(!['owner','head_judge'].includes(u.role))fail('Denne saken må behandles av hoveddommer eller eier.',403);return u}
 export async function siteOwner(req:Request){const u=await admin(req);const o=await one("SELECT value FROM settings WHERE key='owner'");if(o?.value!==u.userId)fail('Bare eieren kan endre administratortilgang og spilloppsett.',403);return u}
 export function origin(req:Request){const o=req.headers.get('origin');if(o&&o!==new URL(req.url).origin)fail('Ugyldig forespørsel.',403)}
 export const json=(data:any,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});

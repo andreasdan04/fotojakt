@@ -232,6 +232,20 @@
       "when": 1791401923078,
       "tag": "0032_bored_speedball",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1791475760963,
+      "tag": "0033_square_adam_destine",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1791476368989,
+      "tag": "0034_orange_the_phantom",
+      "breakpoints": true
     }
   ]
 }

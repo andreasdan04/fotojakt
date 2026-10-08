@@ -1,3 +1,4 @@
+import {dispatchReviewNotices} from './review-notifications';
 import {afternoonLocked} from './hunt-times';
 import {ensureGames,processBonuses} from './game';
 import {processChatReviews} from './chat-moderation';
@@ -31,7 +32,7 @@ export function validateExpoToken(token:any){
  return token as string;
 }
 // Android only shows notifications on channels the app has created: 'hunts' and 'social'.
-const SOCIAL_KINDS=['chat','invitation','social'];
+const SOCIAL_KINDS=['chat','invitation','social','review'];
 async function sendExpoPush(sub:any,payload:any,ttl:number){
  const headers:Record<string,string>={'Content-Type':'application/json',Accept:'application/json'};
  if((env as any).EXPO_ACCESS_TOKEN)headers.Authorization=`Bearer ${(env as any).EXPO_ACCESS_TOKEN}`;
@@ -106,6 +107,6 @@ export async function dispatchPush(){
    }catch(error:any){console.error('Push delivery failed; retry scheduled');await run('UPDATE push_deliveries SET attempts=attempts+1,next_attempt=? WHERE id=?',Date.now()+60000,id);failed++;}
   }))}
   await run('DELETE FROM push_deliveries WHERE created<? AND challenge IN (SELECT id FROM challenges WHERE end<?)',now-30*86400000,now);
-  const invitations=await dispatchInvitations(sendPush),chat=await dispatchChat(sendPush),social=await dispatchSocial(sendPush),changes=await dispatchWordChanges(sendPush);await processChatReviews(now);return {sent:sent+social.sent+changes.sent+chat.sent+invitations.sent,failed:failed+social.failed+changes.failed+chat.failed+invitations.failed,remaining:Math.max(0,selected.length-20),nextCheckMs:15000};
+  const reviews=await dispatchReviewNotices(sendPush),invitations=await dispatchInvitations(sendPush),chat=await dispatchChat(sendPush),social=await dispatchSocial(sendPush),changes=await dispatchWordChanges(sendPush);await processChatReviews(now);return {sent:sent+reviews.sent+social.sent+changes.sent+chat.sent+invitations.sent,failed:failed+reviews.failed+social.failed+changes.failed+chat.failed+invitations.failed,remaining:Math.max(0,selected.length-20),nextCheckMs:15000};
  }finally{await run('UPDATE settings SET value=? WHERE key=? AND value=?','0','push_scheduler_lock',lease)}
 }

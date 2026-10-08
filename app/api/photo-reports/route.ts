@@ -14,7 +14,7 @@ export const GET=wrap(async(req:Request)=>{
  FROM (SELECT id,submission,reporter,reason,created,'admin' source FROM photo_admin_reports WHERE status='open'
  UNION ALL SELECT 'vote:'||r.submission id,r.submission,r.reporter,r.reason,r.created,'vote' source FROM photo_reports r WHERE r.status!='admin' AND NOT EXISTS(SELECT 1 FROM photo_admin_reports direct WHERE direct.submission=r.submission AND direct.status='open')) r
  JOIN submissions s ON s.id=r.submission JOIN challenges c ON c.id=s.challenge LEFT JOIN members mr ON mr.id=r.reporter JOIN members mp ON mp.id=s.user ORDER BY r.created DESC,r.id`,reviewer.userId);
- const reports=rows.filter((r:any)=>canReviewHunt(r,!!r.own,now)).slice(0,100).map(({own,...r}:any)=>r);
+ const reports=rows.filter((r:any)=>canReviewHunt(r,!!r.own,now)).slice(0,100).map(({own,...r}:any)=>({...r,canJudge:r.user!==reviewer.userId}));
  const lockedReports=rows.filter((r:any)=>!canReviewHunt(r,!!r.own,now)).slice(0,100).map((r:any)=>({reportId:r.reportId,reportedAt:r.reportedAt,end:r.end,lockedReason:r.start>now?'Jakten har ikke startet.':'Lever ditt eget bilde, eller vent til jaktens slutt.'}));
  await auditPrivacyRead(reviewer.userId,'photo-report-list',reports.map((r:any)=>r.id));return json({reports,lockedReports,total:rows.length,now});
 });

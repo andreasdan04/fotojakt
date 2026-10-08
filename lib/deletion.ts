@@ -12,6 +12,9 @@ export function contentDeletionStatements(kind:'photo'|'own-photo'|'challenge'|'
  statements.push(d.prepare(`DELETE FROM favorite_candidates WHERE submission IN (${photos})`).bind(id));
  if(kind==='season')statements.push(d.prepare('DELETE FROM favorite_polls WHERE season=?').bind(id));
  for(const table of ['bonus_reviews','photo_votes','photo_voters','photo_reports','photo_admin_reports'])statements.push(d.prepare(`DELETE FROM ${table} WHERE submission IN (${photos})`).bind(id));
+ statements.push(d.prepare(`DELETE FROM review_push WHERE submission IN (${photos})`).bind(id));
+ statements.push(d.prepare(`DELETE FROM review_appeals WHERE decision IN(SELECT id FROM review_decisions WHERE submission IN (${photos}))`).bind(id));
+ statements.push(d.prepare(`DELETE FROM review_decisions WHERE submission IN (${photos})`).bind(id));
  statements.push(d.prepare(`DELETE FROM social_push WHERE submission IN (${photos})`).bind(id));
  statements.push(d.prepare(`DELETE FROM comments WHERE submission IN (${photos})`).bind(id));
  statements.push(d.prepare(`DELETE FROM reactions WHERE submission IN (${photos})`).bind(id));
@@ -44,6 +47,13 @@ export async function deleteMember(value:any,actor:string){
  if(!m)fail('Medlemmet er allerede slettet.',404);
  if(m.admin||id===actor)fail('Administratorkontoen kan ikke slettes.',403);
  const d=db(),q:any[]=[],photos='SELECT id FROM submissions WHERE user=?',anonymous='deleted:'+crypto.randomUUID();
+ q.push(d.prepare('DELETE FROM review_push WHERE submission IN(SELECT id FROM submissions WHERE user=?) OR subscription IN(SELECT id FROM push_subscriptions WHERE user=?)').bind(id,id));
+ q.push(d.prepare('DELETE FROM staff_roles WHERE user=?').bind(id));
+ q.push(d.prepare('UPDATE staff_acceptances SET revoked=COALESCE(revoked,?) WHERE user=?').bind(Date.now(),id));
+ q.push(d.prepare('DELETE FROM review_appeals WHERE user=? OR decision IN(SELECT id FROM review_decisions WHERE submission IN(SELECT id FROM submissions WHERE user=?))').bind(id,id));
+ q.push(d.prepare('DELETE FROM review_decisions WHERE submission IN(SELECT id FROM submissions WHERE user=?)').bind(id));
+ q.push(d.prepare("UPDATE review_decisions SET actor=NULL WHERE actor=?").bind(id));
+ q.push(d.prepare("UPDATE review_appeals SET reviewer=NULL WHERE reviewer=?").bind(id));
  q.push(d.prepare('DELETE FROM rules_acceptances WHERE user_id=?').bind(id));
  q.push(d.prepare(`DELETE FROM photo_admin_reports WHERE reporter=? OR submission IN (${photos})`).bind(id,id));
  q.push(d.prepare("DELETE FROM settings WHERE key IN(SELECT 'metadata-retry:'||key FROM submissions WHERE user=? UNION SELECT 'metadata-retry:'||key FROM avatars WHERE user=? UNION SELECT 'metadata-retry:'||key FROM chat_attachments WHERE user=?)").bind(id,id,id));

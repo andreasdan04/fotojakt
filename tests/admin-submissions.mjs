@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';
 import {readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -15,9 +16,11 @@ try{
   await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(hash(id),id,now+86400000).run();
   if(isAdmin)await db.prepare('INSERT INTO sessions(token,user,expires) VALUES(?,?,?)').bind(hash('admin-'+id),id,now+86400000).run();
   if(signed)await db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('admin-agreement:'+id,JSON.stringify({version:'2026-10-07.1',accepted:now})).run();
+  if(signed)await seedStaffAcceptance(db,id,now);
  }
  const req=(who,url)=>mf.dispatchFetch('https://test.invalid'+url,{headers:who?{cookie:'hunt_login='+who+'; hunt_admin=admin-'+who}:{}});
  const review=(who,b,origin)=>mf.dispatchFetch('https://test.invalid/api/admin-submissions',{method:'POST',headers:{'Content-Type':'application/json',...(origin?{origin}:{}),...(who?{cookie:'hunt_login='+who+'; hunt_admin=admin-'+who}:{})},body:JSON.stringify(b)});
+ await db.prepare("INSERT INTO settings(key,value) VALUES('owner','reviewer')").run();
  const verdict={id:'photo-0',valid:false,category:'word',reason:'Motivet passer ikke ordet.',expectedValid:true,expectedNote:''};
  await db.prepare("INSERT INTO seasons(id,name,start) VALUES('s','Synthetic Album',1)").run();
  for(const [id,start,end,daily] of [['completed',now-100000,now-1000,1],['active',now-10000,now+3600000,1],['future',now+3600000,now+4800000,0]])await db.prepare('INSERT INTO challenges(id,season,title,details,start,end,duration,created,daily) VALUES(?,?,?,?,?,?,?,?,?)').bind(id,'s',id==='future'?'SECRET FUTURE MOTIF':'SYNTHETIC '+id,'SECRET DESCRIPTION',start,end,end-start,1,daily).run();
@@ -57,13 +60,14 @@ try{
  assert.equal(await points(),0,'invalidated photo no longer earns hunt points');
  const report=await db.prepare("SELECT status,applied FROM photo_reports WHERE submission='photo-0'").first();assert.equal(report.status,'admin');assert.equal(report.applied,1);
  assert.equal((await review('reviewer',verdict)).status,409,'stale assessment cannot overwrite a newer one');
- const reviewAudits=(await db.prepare("SELECT value FROM settings WHERE key LIKE 'privacy-audit:%'").all()).results.map(x=>JSON.parse(x.value)).filter(x=>x.action==='hunt-submission-review');assert.equal(reviewAudits.length,1);assert.equal(reviewAudits[0].actor,'reviewer');assert.deepEqual(reviewAudits[0].ids,['photo-0']);assert.equal(reviewAudits[0].valid,false);
+ const reviewAudits=(await db.prepare("SELECT value FROM settings WHERE key LIKE 'privacy-audit:%'").all()).results.map(x=>JSON.parse(x.value)).filter(x=>x.action==='judge-decision'&&x.kind==='photo');assert.equal(reviewAudits.length,1);assert.equal(reviewAudits[0].actor,'reviewer');assert.deepEqual(reviewAudits[0].ids,['photo-0']);assert.equal(reviewAudits[0].status,'rejected');
  const restored=await review('reviewer',{...verdict,valid:true,category:'restore',reason:'Motivet er godkjent etter ny vurdering.',expectedValid:false,expectedNote:judged.note});assert.equal(restored.status,200);assert.equal((await restored.json()).valid,1);
  assert.equal(await points(),10,'reinstated photo earns its original placement again');
  await db.prepare("INSERT INTO submissions(id,challenge,user,key,submitted,elapsed) VALUES('own','active','reviewer','photos/own',?,9000)").bind(now).run();
  assert.equal((await req('reviewer','/api/admin-submissions?challenge=active')).status,200);assert.equal((await req('reviewer','/api/photo/active-photo?review=hunt')).status,200);
  await db.prepare("DELETE FROM submissions WHERE id='own'").run();assert.equal((await req('reviewer','/api/admin-submissions?challenge=active')).status,403);assert.equal((await req('reviewer','/api/photo/active-photo?review=hunt')).status,403,'photo route rechecks after own delivery is removed');
  assert.equal((await req('reviewer','/api/admin-submissions?challenge=future')).status,403);
+ await db.prepare("DELETE FROM settings WHERE key='owner'").run();
  await db.prepare("UPDATE members SET admin=0 WHERE id='reviewer'").run();assert.equal((await req('reviewer','/api/admin-submissions?challenge=completed')).status,403);assert.equal((await req('reviewer','/api/photo/photo-0?review=hunt')).status,403);
  assert.equal((await review('reviewer',verdict)).status,403);
  console.log('PASS: signed admin access to all hunt participants; normal gallery boundary; own-delivery/end gate on list and image; future-word secrecy; blocked/invalid records; user filter and pagination; separate receipt/photo times; minimal audit and no-store; immediate role and own-delivery rechecks.');

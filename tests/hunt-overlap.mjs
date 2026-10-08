@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';
 import {readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -36,8 +37,11 @@ try{
   await db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('privacy:'+user,JSON.stringify({analytics:false,pushPreview:true})).run();
  }
  await db.prepare("INSERT INTO settings(key,value) VALUES('owner','admin')").run();await db.prepare('INSERT INTO sessions(token,user,expires) VALUES(?,?,?)').bind(hash('admin-cookie'),'admin',begin+86400000).run();await db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('admin-agreement:admin',JSON.stringify({version:'2026-10-07.1',accepted:1})).run();
+ await seedStaffAcceptance(db,"admin",1);
  await db.prepare("INSERT INTO seasons(id,name,start,daily,first_day,last_day) VALUES('s','Test',?,1,?,?)").bind(begin,day,day).run();
  for(const slot of [1,2]){const start=osloTime(day,slot===1?6:15),end=slot===1?osloTime(day,15):osloTime(nextDay(day),0);await db.prepare("INSERT INTO challenges(id,season,title,details,start,end,duration,created,daily,day,slot) VALUES(?,'s',?,?,?,?,?,?,1,?,?)").bind(slot===1?'am':'pm',slot===1?'AM SECRET':'PM SECRET','SECRET DESCRIPTION',start,end,end-start,begin-86400000,day,slot).run();await db.prepare('INSERT INTO game_hunts(challenge,bonus) VALUES(?,?)').bind(slot===1?'am':'pm','SECRET BONUS').run();}
+ // Isolate scheduled daily pushes from an unrelated randomly timed weekly hunt.
+ await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily) VALUES('lightning:test','s','Synthetic past lightning',?,?,1000,1,0)").bind(begin-86400000,begin-86400000+1000).run();await db.prepare("INSERT INTO game_hunts(challenge,week,lightning) VALUES('lightning:test','2027-03-22',1)").run();
  await db.prepare("INSERT INTO captures(token,user,challenge,expires,issued) VALUES('legacy-camera','bob','am',?,?)").bind(osloTime(day,15)+86400000,begin).run();
  await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily,day,slot) VALUES('historic','s','HISTORIC',1,2,1,1,1,'2026-01-01',1)").run();
  for(const user of ['alice','bob'])for(const provider of ['expo','webpush'])await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated,provider) VALUES(?,?,?,?,?,?,?,?)').bind(user+provider,user,provider==='expo'?'ExpoPushToken['+user+'abcdefghijklmnop]':'https://fcm.googleapis.com/'+user,provider==='expo'?'':receiver.getPublicKey().toString('base64url'),provider==='expo'?'':auth,begin-86400000,begin,provider).run();

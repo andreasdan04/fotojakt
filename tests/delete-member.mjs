@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';import {readFile,readdir} from 'node:fs/promises';import path from 'node:path';import assert from 'node:assert/strict';import crypto from 'node:crypto';
 const require=createRequire(import.meta.url),wr=createRequire(require.resolve('wrangler/package.json')),{Miniflare,Response:MFResponse}=wr('miniflare');
 let aiMode='good',calls=0;const words=['kopp','sykkel','stein','sko','lampe','hund'];
@@ -8,6 +9,7 @@ const now=Date.now(),headers={};for(const user of ['admin','early','late','pendi
 await db.prepare('INSERT INTO sessions(token,user,expires) VALUES (?,?,?)').bind('8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918','admin',now+86400000).run();
 await db.prepare('INSERT INTO settings(key,value) VALUES (?,?)').bind('owner','admin').run();
 await db.prepare('INSERT INTO settings(key,value) VALUES (?,?)').bind('admin-agreement:admin',JSON.stringify({version:'2026-10-07.1',accepted:now})).run();
+ await seedStaffAcceptance(db,"admin",now);
 async function req(user,body,url='/api/hunt'){const h={...headers[user]};let data;if(body instanceof FormData){const encoded=new Response(body);h['content-type']=encoded.headers.get('content-type');data=new Uint8Array(await encoded.arrayBuffer())}else data=body?JSON.stringify(body):undefined;const r=await mf.dispatchFetch('https://test.invalid'+url,{method:body?'POST':'GET',headers:h,...(data?{body:data}:{})});return {status:r.status,data:await r.json()}}
 
 

@@ -15,11 +15,12 @@ export async function runRetention(now=Date.now()){
  await d.batch([
  d.prepare('DELETE FROM login_sessions WHERE expires<=?').bind(now),d.prepare('DELETE FROM sessions WHERE expires<=?').bind(now),d.prepare('DELETE FROM attempts WHERE until<=?').bind(now),d.prepare('DELETE FROM captures WHERE expires<=?').bind(now),
  d.prepare("DELETE FROM usage_daily WHERE day<? OR NOT EXISTS(SELECT 1 FROM settings WHERE key='privacy:'||usage_daily.user AND json_extract(value,'$.analytics')=1)").bind(new Date(now-90*day).toISOString().slice(0,10)),d.prepare('DELETE FROM usage_activity WHERE last_seen<=?').bind(now-1800000),
+ d.prepare('DELETE FROM staff_acceptances WHERE revoked IS NOT NULL AND revoked<?').bind(now-90*day),
  d.prepare("DELETE FROM settings WHERE key LIKE 'admin-agreement:%' AND CAST(json_extract(value,'$.revoked') AS INTEGER)<?").bind(now-90*day),
  d.prepare("DELETE FROM chat_reviews WHERE message IN(SELECT id FROM chat_messages WHERE room!='public') AND NOT EXISTS(SELECT 1 FROM settings WHERE key='chat-report:'||chat_reviews.message)"),
  d.prepare("DELETE FROM chat_reviews WHERE (status='clear' AND updated<?) OR (status IN ('confirmed','dismissed') AND updated<?)").bind(now-7*day,now-90*day),
  d.prepare("UPDATE bonus_reviews SET reason='' WHERE status IN ('approved','rejected') AND updated<?").bind(now-90*day),
- ...['push_deliveries','social_push','chat_push','invitation_push'].map(t=>d.prepare(`DELETE FROM ${t} WHERE created<? OR subscription NOT IN(SELECT id FROM push_subscriptions)`).bind(now-30*day)),
+ ...['push_deliveries','social_push','chat_push','invitation_push','review_push'].map(t=>d.prepare(`DELETE FROM ${t} WHERE created<? OR subscription NOT IN(SELECT id FROM push_subscriptions)`).bind(now-30*day)),
  d.prepare("DELETE FROM settings WHERE key LIKE 'metadata-cleaned:%' AND substr(key,18) NOT IN(SELECT key FROM submissions UNION SELECT key FROM avatars UNION SELECT key FROM chat_attachments UNION SELECT json_extract(value,'$.imageKey') FROM settings WHERE key LIKE 'bug-report:%' AND json_extract(value,'$.imageKey') IS NOT NULL)"),
  d.prepare("DELETE FROM settings WHERE key LIKE 'metadata-retry:%' AND substr(key,16) NOT IN(SELECT key FROM submissions UNION SELECT key FROM avatars UNION SELECT key FROM chat_attachments UNION SELECT json_extract(value,'$.imageKey') FROM settings WHERE key LIKE 'bug-report:%' AND json_extract(value,'$.imageKey') IS NOT NULL)"),
  d.prepare("DELETE FROM settings WHERE key IN(SELECT 'push_test:'||id FROM push_subscriptions WHERE updated<?)").bind(now-90*day),d.prepare('DELETE FROM push_subscriptions WHERE updated<?').bind(now-90*day),

@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';
 import {readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +9,7 @@ let outbound=0;
 const mf=new Miniflare({modules:(await readdir('dist/server',{recursive:true})).filter(p=>p.endsWith('.js')).sort((a,b)=>a==='index.js'?-1:b==='index.js'?1:0).map(p=>({type:'ESModule',path:path.resolve('dist/server',p)})),modulesRoot:path.resolve('dist/server'),compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:['DB'],r2Buckets:['BUCKET'],bindings:{OPENAI_API_KEY:'synthetic-key',GDPR_AI_APPROVED:'true'},cf:false,outboundService:async()=>{outbound++;throw Error('Unexpected outbound transfer')}});
 try{
  const db=await mf.getD1Database('DB'),now=Date.now();for(const file of(await readdir('drizzle')).filter(x=>x.endsWith('.sql')).sort())for(const sql of(await readFile('drizzle/'+file,'utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(sql).run();
- for(const [id,admin,signed] of [['owner',1,true],['staff',1,true],['unsigned',1,false],['player',0,false]]){await db.prepare("INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES(?,?,?,'approved',1,1,?)").bind(id,id,'',admin).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(hash(id),id,now+86400000).run();if(admin)await db.prepare('INSERT INTO sessions(token,user,expires) VALUES(?,?,?)').bind(hash('admin-'+id),id,now+86400000).run();if(signed)await db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('admin-agreement:'+id,JSON.stringify({version:'2026-10-07.1',accepted:now})).run()}
+ for(const [id,admin,signed] of [['owner',1,true],['staff',1,true],['unsigned',1,false],['player',0,false]]){await db.prepare("INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES(?,?,?,'approved',1,1,?)").bind(id,id,'',admin).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(hash(id),id,now+86400000).run();if(admin)await db.prepare('INSERT INTO sessions(token,user,expires) VALUES(?,?,?)').bind(hash('admin-'+id),id,now+86400000).run();if(signed)await db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').bind('admin-agreement:'+id,JSON.stringify({version:'2026-10-07.1',accepted:now})).run();if(signed)await seedStaffAcceptance(db,id,now)}
  await db.prepare("INSERT INTO settings(key,value) VALUES('owner','owner')").run();
  const req=(who,url,body,method)=>mf.dispatchFetch('https://test.invalid'+url,{method:method||(body?'POST':'GET'),headers:{...(who?{cookie:'hunt_login='+who+'; hunt_admin=admin-'+who}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
  const wordsUrl='/api/chat/moderation/words';
@@ -29,7 +30,7 @@ try{
  assert.equal((await req('owner','/api/photo/locked?review=bonus')).status,403);
  assert.equal((await req('owner','/api/hunt',{action:'review-bonus',id:'locked',status:'approved',reason:'Synthetic'})).status,403);
  assert.equal((await req('player','/api/hunt',{action:'review-bonus',id:'new',status:'approved',reason:'Synthetic'})).status,403);
- assert.equal((await req('staff','/api/hunt',{action:'review-bonus',id:'new',status:'approved',reason:' '})).status,400);
+ assert.equal((await req('staff','/api/hunt',{action:'review-bonus',id:'new',status:'rejected',reason:' '})).status,400);
  assert.equal((await req('staff','/api/hunt',{action:'review-bonus',id:'new',status:'approved',reason:'Bonuskravet er oppfylt.'})).status,200);
  assert.equal((await db.prepare("SELECT status FROM bonus_reviews WHERE submission='new'").first()).status,'approved');assert.equal((await db.prepare("SELECT elapsed FROM submissions WHERE id='new'").first()).elapsed,1000);
  assert.equal((await req('owner','/api/hunt',{action:'review-bonus',id:'new',status:'rejected',reason:'Stale decision'})).status,409);

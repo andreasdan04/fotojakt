@@ -1,3 +1,4 @@
+import {signature} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';
 import {readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -38,7 +39,7 @@ try{
  // Every administrator, including the owner, is gated server-side until acceptance.
  assert.equal((await req('owner','/api/usage')).status,403);assert.equal((await req('owner','/api/chat/moderation')).status,403);
  const agreement=(await(await req('owner','/api/admin-access')).json());assert.equal(agreement.accepted,false);assert.equal(agreement.members,undefined);
- const accept={action:'accept',version:agreement.version,accepted:true,name:'Synthetic Owner',email:'owner@test.invalid',address:'Synthetic Street 1, 0000 Test',signature:'Synthetic Owner'};
+ const accept={action:'accept',version:agreement.version,accepted:true,name:'Synthetic Owner',email:'owner@test.invalid',address:'Synthetic Street 1, 0000 Test',signature};
  assert.equal((await req('owner','/api/admin-access',{...accept,signature:'Wrong Name'})).status,400);
  assert.equal((await req('owner','/api/admin-access',accept)).status,200);
  assert.equal((await req('owner','/api/usage?days=90')).status,200);
@@ -48,13 +49,13 @@ try{
  assert.equal((await req('c','/api/auth',{action:'login',name:'carol',pin:'123456'})).status,200);
  assert.equal((await req('c','/api/usage')).status,403,'assigned role alone is insufficient');
  const stateBefore=(await(await req('c','/api/hunt')).json());assert.equal(stateBefore.admin,false);assert.equal(stateBefore.members,undefined);assert.equal(stateBefore.adminAccess.session,true);
- assert.equal((await req('c','/api/admin-access',{...accept,name:'Synthetic Carol',signature:'Synthetic Carol',email:'carol@test.invalid'})).status,200);
+ assert.equal((await req('c','/api/admin-access',{...accept,name:'Synthetic Carol',signature,email:'carol@test.invalid'})).status,200);
  assert.equal((await req('c','/api/chat/moderation')).status,200,'accepted administrators can evaluate cases');
  assert.equal((await req('c','/api/admin-access',{action:'role',id:ids.b,enabled:true})).status,403,'only owner can grant roles');
  assert.equal((await req('c','/api/admin-access?agreement='+stateBefore.adminAccess.isOwner)).status,403,'other identity records are owner-only');
- assert.equal((await(await req('c','/api/admin-access')).json()).members,undefined);
- const carolRecord=await(await req('owner','/api/admin-access?agreement='+ids.c)).json();assert.equal(carolRecord.agreement.email,'carol@test.invalid');
- assert.equal((await req('owner','/api/admin-access',{action:'role',id:carolRecord.agreement.user,enabled:false})).status,200);
+ assert(Array.isArray((await(await req('c','/api/admin-access')).json()).members));
+ const carolRecord=await(await req('owner','/api/admin-access?agreement='+ids.c)).json();assert.equal(carolRecord.records[0].name,'Synthetic Carol');assert.deepEqual(carolRecord.records[0].signature,signature);assert.equal(carolRecord.records[0].email,undefined);
+ assert.equal((await req('owner','/api/admin-access',{action:'role',id:ids.c,enabled:false})).status,200);
  assert.equal((await req('c','/api/chat/moderation')).status,401,'revocation immediately invalidates old sessions');
  assert.equal((await req('c','/api/auth',{action:'login',name:'carol',pin:'123456'})).status,200);
  assert.equal((await req('c','/api/admin-access')).status,403);
@@ -76,6 +77,6 @@ try{
  assert(await db.prepare("SELECT id FROM submissions WHERE id='keep-photo'").first());assert.equal(await db.prepare("SELECT id FROM submissions WHERE id='expire-photo'").first(),null);assert(await bucket.get('photos/keep-photo.jpg'));assert.equal(await bucket.get('photos/expire-photo.jpg'),null);
  assert.equal((await db.prepare('SELECT COUNT(*) n FROM usage_daily WHERE user=?').bind(ids.c).first()).n,1,'60-day analytics kept and 91-day analytics removed');
  await req('c','/api/privacy',{action:'preferences',analytics:false,pushPreview:false});assert.equal((await db.prepare('SELECT COUNT(*) n FROM usage_daily WHERE user=?').bind(ids.c).first()).n,0,'withdrawal deletes retained analytics immediately');
- assert.equal(result.status,200,await result.clone().text());assert.equal(await db.prepare("SELECT id FROM chat_messages WHERE id='expired'").first(),null);assert(await db.prepare("SELECT value FROM settings WHERE key='privacy-cleanup-status'").first());assert.equal(outbound,0,'no external AI transfer without operator approval');
+ assert.equal(result.status,200);assert.equal(await db.prepare("SELECT id FROM chat_messages WHERE id='expired'").first(),null);assert(await db.prepare("SELECT value FROM settings WHERE key='privacy-cleanup-status'").first());assert.equal(outbound,0,'no external AI transfer without operator approval');
  console.log('PASS: policy and age gate; native bearer access; server consent and withdrawal; private chat moderation boundary; owner-only sharing; image metadata stripping; blocked-account export; group transfer; account data-root deletion; hashed admin sessions and password migration; real aggregate visibility; independent retention.');
 }finally{await mf.dispose();}

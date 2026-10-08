@@ -25,11 +25,13 @@ import {notificationStatus} from '@/lib/push';
 import {env} from 'cloudflare:workers';
 import {currentUser} from '@/lib/auth';
 import {all,one,run,db,bucket,identity,member,admin,adminSession,siteOwner,origin,json,wrap,fail,str,rank} from '@/lib/server';
-import {ADMIN_AGREEMENT_VERSION} from '@/lib/admin-agreement';
+import {roleFor,acceptanceFor} from '@/lib/staff';
+import {staff} from '@/lib/server';
+import {decideCase} from '@/lib/judging';
 import {challengeWordVisible} from '@/lib/challenge-visibility';
 import {rulesStatus,requireRulesForNewStart} from '@/lib/rules-acceptance';
 export const dynamic='force-dynamic';
-export const GET=wrap(async(req:Request)=>{await repairUploadResult();const u=await currentUser();if(!u)return json({user:null});const m=await one('SELECT * FROM members WHERE id=?',u.userId);let rawAdmin=false;try{await adminSession(req);rawAdmin=true}catch{};const agreement=(await one('SELECT value FROM settings WHERE key=?','admin-agreement:'+u.userId))?.value;const agreementAccepted=!!agreement&&JSON.parse(agreement).version===ADMIN_AGREEMENT_VERSION&&!JSON.parse(agreement).revoked;const isOwner=(await one("SELECT value FROM settings WHERE key='owner'"))?.value===u.userId;const adminAccess={session:rawAdmin,accepted:agreementAccepted,isOwner};let isAdmin=false;try{await admin(req);isAdmin=true}catch{};if(!m||m.status!=='approved')return json({user:{id:u.userId,name:m?.name||u.fullName||'',status:m?.status||'new'},admin:isAdmin,adminAccess});
+export const GET=wrap(async(req:Request)=>{await repairUploadResult();const u=await currentUser();if(!u)return json({user:null});const m=await one('SELECT * FROM members WHERE id=?',u.userId);let rawAdmin=false;try{await adminSession(req);rawAdmin=true}catch{};const agreementAccepted=!!await acceptanceFor(u.userId);const role=await roleFor(u.userId);const isOwner=role==='owner';const adminAccess={session:rawAdmin,accepted:agreementAccepted,isOwner,role};let isAdmin=false;try{await admin(req);isAdmin=true}catch{};if(!m||m.status!=='approved')return json({user:{id:u.userId,name:m?.name||u.fullName||'',status:m?.status||'new'},admin:isAdmin,adminAccess});
 const now=Date.now();await ensureGames(now);await settleDifficultyPolls(now);await upgradeFutureDaily(now);await applyApprovedWords(now);await ensureWordDescriptions(now);await settleReports(now);const profileId=new URL(req.url).searchParams.get('profile');if(profileId)return json(await photoProfile(str(profileId,100),m.id,isAdmin,now));const seasons=await all('SELECT * FROM seasons ORDER BY start DESC');const requested=new URL(req.url).searchParams.get('season');const season=seasons.find((s:any)=>s.id===requested)||seasons.find((s:any)=>!s.end&&s.start<=now&&(!s.last_day||s.last_day>=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Oslo'}).format(now)))||seasons.find((s:any)=>!s.end&&s.start>now)||seasons[0]||null;const challenges=season?await all('SELECT c.*,COALESCE(g.lightning,0) lightning,g.bonus FROM challenges c LEFT JOIN game_hunts g ON g.challenge=c.id WHERE c.season=? ORDER BY c.created DESC',season.id):[];
 const audience=await all(`SELECT id FROM members m WHERE status='approved' AND ${audienceSql(m.id,'m.id')}`);const audienceIds=new Set(audience.map((x:any)=>x.id));
 const groupAudience=await all(`SELECT id FROM members m WHERE status='approved' AND ${groupAudienceSql(m.id,'m.id')}`);const groupAudienceIds=new Set(groupAudience.map((x:any)=>x.id));
@@ -74,7 +76,7 @@ export const POST=wrap(async(req:Request)=>{origin(req);const u=await identity()
 if(type.includes('multipart/form-data'))return uploadPhoto(req,await member());
 const b:any=await req.json();if(!b||typeof b!=='object')fail('Ugyldig forespørsel.');const now=Date.now();
 if(b.action==='delete-own-photo'){const m=await member();return json(await deleteOwnPhoto(b.id,m.id))}
-if(b.action==='logout-admin'){await admin(req);await run('DELETE FROM sessions WHERE user=?',u.userId);return json({ok:true})}
+if(b.action==='logout-admin'){await adminSession(req);await run('DELETE FROM sessions WHERE user=?',u.userId);return json({ok:true})}
 const m=await member();if(['start-daily','camera','taken'].includes(b.action))await upgradeFutureDaily(now);
 if(['game-seen','active-title'].includes(b.action))return json(await gameAction(b,m.id));
 if(b.action==='leaderboard-filter'){const group=str(b.group,100);if(!['all','my-groups','lightning'].includes(group)&&!await one('SELECT g.id FROM groups g JOIN group_members gm ON gm.group_id=g.id WHERE g.id=? AND gm.user=?',group,m.id))fail('Du har ikke tilgang til denne gruppens poengtavle.',403);await run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value','leaderboard_filter:'+m.id,group);return json({ok:true,scoreboardGroup:group})}
@@ -119,9 +121,9 @@ if(b.action==='delete-comment'){
  if(comment.user!==u.userId)await admin(req);
  await run("UPDATE comments SET body='',deleted=1 WHERE id=?",b.id);return json({ok:true});
 }
+if(b.action==='review-bonus')return json(await decideCase({...b,kind:'bonus'},await staff(req)));
 await admin(req);
-if(['album','season','end-season','refresh-words','replace-word','open-difficulty-poll','delete-challenge','delete-season','delete-member','member'].includes(b.action))await siteOwner(req);
-if(b.action==='review-bonus')return json(await reviewBonus(b,u.userId));
+if(['album','season','end-season','refresh-words','replace-word','open-difficulty-poll','delete-challenge','delete-season','delete-member','member','challenge','release','end-challenge','result','review-feature','assess-words','assess-word','review-word'].includes(b.action))await siteOwner(req);
 if(b.action==='open-difficulty-poll')return json(await openDifficultyPoll(b,u.userId,now));
 if(b.action==='replace-word')return json(await replaceWord(b,u.userId));
 if(b.action==='review-feature')return json(await reviewFeature(b));
@@ -138,5 +140,5 @@ if(b.action==='end-season'){await db().batch([db().prepare('UPDATE seasons SET e
 if(b.action==='challenge'){const season=await one('SELECT id FROM seasons WHERE end IS NULL');if(!season)fail('Start en sesong først.');const duration=Number(b.minutes)*60000;if(!Number.isFinite(duration)||duration<60000||duration>604800000)fail('Velg mellom 1 minutt og 7 dager.');let start=b.mode==='now'?now:b.mode==='schedule'?Date.parse(b.start):null;if(b.mode==='schedule'&&(!Number.isFinite(start)||start!<now))fail('Velg et tidspunkt i fremtiden.');await run('INSERT INTO challenges(id,season,title,details,start,end,duration,created) VALUES (?,?,?,?,?,?,?,?)',crypto.randomUUID(),season.id,str(b.title),String(b.details||'').slice(0,1000),start,start?start+duration:null,duration,now);return json({ok:true})}
 if(b.action==='release'){await run('UPDATE challenges SET start=?,end=?+duration WHERE daily=0 AND id=? AND (start IS NULL OR start>?) AND season IN (SELECT id FROM seasons WHERE end IS NULL)',now,now,b.id,now);return json({ok:true})}
 if(b.action==='end-challenge'){await run('UPDATE challenges SET end=? WHERE id=? AND start<=? AND end>?',now,b.id,now,now);return json({ok:true})}
-if(b.action==='result'){const s=await one('SELECT s.*,c.end-c.start maximum FROM submissions s JOIN challenges c ON c.id=s.challenge WHERE s.id=?',b.id);if(!s)fail('Fant ikke resultatet.');const elapsed=Math.round(Number(b.seconds)*1000);if(!Number.isFinite(elapsed)||elapsed<0||elapsed>s.maximum)fail('Tiden må være innenfor jaktens tidsgrense.');await db().batch([db().prepare("UPDATE photo_reports SET status='admin',applied=1 WHERE submission=?").bind(b.id),db().prepare('UPDATE submissions SET elapsed=?,valid=?,note=? WHERE id=?').bind(elapsed,b.valid?1:0,str(b.note,300),b.id)]);return json({ok:true})}
+if(b.action==='result'){const actor=await siteOwner(req),s=await one('SELECT * FROM submissions WHERE id=?',str(b.id,100));if(!s)fail('Fant ikke resultatet.',404);if(typeof b.valid!=='boolean')fail('Velg gyldig eller ugyldig.');const previous=await one("SELECT id FROM review_decisions WHERE submission=? AND kind='photo' AND current=1",s.id);return json(await decideCase({kind:'photo',id:s.id,status:b.valid?'approved':'rejected',reason:str(b.note,300),elapsed:Math.round(Number(b.seconds)*1000),expectedValid:!!s.valid,expectedNote:s.note,override:!!previous,decision:previous?.id,administrative:true},actor));}
 fail('Ukjent handling.');});
