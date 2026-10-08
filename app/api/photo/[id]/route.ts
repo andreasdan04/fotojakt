@@ -8,7 +8,7 @@ export const GET=wrap(async(req:Request,ctx:any)=>{
  const m=await member(),{id}=await ctx.params,review=new URL(req.url).searchParams.get('review');
  if(review==='case'){const s=await casePhotoAccess(id,await staff(req)),file=await bucket().get(s.key);if(!file)fail('Bildet er utilgjengelig.',404);return new Response(file.body,{headers:{'Content-Type':'image/jpeg','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}
  if(review==='hunt'){
-  const reviewer=await admin(req),s=await one('SELECT challenge,key FROM submissions WHERE id=?',id);if(!s)fail('Bildet finnes ikke.',404);
+  const reviewer=await staff(req),s=await one('SELECT challenge,key FROM submissions WHERE id=?',id);if(!s)fail('Bildet finnes ikke.',404);
   await requireHuntReview(s.challenge,reviewer.userId);
   const file=await bucket().get(s.key);if(!file)fail('Bildet er utilgjengelig.',404);
   await auditPrivacyRead(reviewer.userId,'hunt-submission-photo',[id]);

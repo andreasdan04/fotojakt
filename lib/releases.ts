@@ -2,6 +2,8 @@
 // Keep the player-facing version number stable during each Oslo calendar day.
 export const releases=[
  {version:53,date:'2026-10-08',summary:'Fleksible jakttider, fungerende frivillig statistikk, dommerroller, håndskrevet taushetserklæring og klagebehandling.',changes:[
+  {type:'Bugfiks' as const,text:'Signaturfeltet tilpasser seg mobilbredden, og fingerbevegelser tegner underskriften uten å rulle eller zoome siden. Avbrutte streker forkastes, og eldre berøringsnettlesere får støtte.'},
+  {type:'Nyhet' as const,text:'Dommere og hoveddommere kan åpne Alle innleveringer i dommerpanelet og markere feil bilder ugyldige med begrunnelse. Egenvurdering er sperret, poeng oppdateres automatisk, og tidligere avgjørelser omgjøres bare av hoveddommer eller eier.'},
   {type:'Bugfiks' as const,text:'Dommere og hoveddommere finner nå Dommerpanel fra profilen. Ordet vises direkte ved start. Jaktklokken bruker servertid og en monoton teller, og bildet beholder tiden fra utløseren gjennom offline-kø og nye leveringsforsøk.'},
   {type:'Bugfiks' as const,text:'Samtidig opplasting kan ikke lenger blande ett bilde med tiden fra et annet forsøk. Bildekøen krever bekreftet levering før lokal sletting, og lynjakter klargjøres korrekt for offline-bruk.'},
   {type:'Nyhet' as const,text:'Dommer og hoveddommer har et eget arbeidsområde i administrasjonen med bonusbilder, rapporterte bilder og egne vurderinger. Team og roller viser rolle og signeringsstatus; administrator kan utnevne dommere, og bare eier kan utnevne administratorer.'},

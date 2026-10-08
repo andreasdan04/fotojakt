@@ -29,8 +29,7 @@ export async function decideCase(b:ReviewInput,actor:Reviewer){
  if(b.override&&(!previous||previous.id!==b.decision))fail('Avgjørelsen er endret.',409);
  if(previous&&await one("SELECT id FROM review_appeals WHERE decision=? AND status='open'",previous.id))fail('Behandle den åpne klagen først.',409);
  if(kind==='photo'&&(typeof b.expectedValid!=='boolean'||typeof b.expectedNote!=='string'))fail('Hent bildet på nytt før vurdering.');
- if(b.administrative&&!['owner','administrator'].includes(actor.role))fail('Bare administrator og eier kan åpne andre bildesaker.',403);
- const now=Date.now(),decision=crypto.randomUUID(),guard=staffGuard(actor.userId,actor.sessionToken,b.override?['owner','head_judge']:b.administrative?['owner','administrator']:undefined);
+ const now=Date.now(),decision=crypto.randomUUID(),guard=staffGuard(actor.userId,actor.sessionToken,b.override?['owner','head_judge']:undefined);
  let eligible=kind==='bonus'?"EXISTS(SELECT 1 FROM bonus_reviews b JOIN submissions s ON s.id=b.submission WHERE b.submission=? AND b.status=? AND s.valid=1 AND s.user<>? AND EXISTS(SELECT 1 FROM settings WHERE key='bonus-opt:'||s.id))":"EXISTS(SELECT 1 FROM submissions WHERE id=? AND valid=? AND COALESCE(note,'')=? AND user<>?)";
  const eligibility:unknown[]=kind==='bonus'?[id,b.override?(await one('SELECT status FROM bonus_reviews WHERE submission=?',id))?.status:'manual',actor.userId]:[id,b.expectedValid?1:0,b.expectedNote,actor.userId];
  if(kind==='photo'&&!b.override&&!b.administrative){eligible+=" AND (EXISTS(SELECT 1 FROM photo_admin_reports WHERE submission=? AND status='open') OR EXISTS(SELECT 1 FROM photo_reports WHERE submission=? AND status!='admin'))";eligibility.push(id,id);}

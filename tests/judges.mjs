@@ -32,7 +32,7 @@ try{
   assert.equal((await db.prepare('SELECT COUNT(*) n FROM staff_acceptances WHERE user=?').bind(user).first()).n,1,'duplicate signing idempotent');
  }
  assert.equal((await req('alice','/api/admin-access')).status,403);
- for(const who of ['judge','head','head2'])for(const url of ['/api/usage','/api/admin-submissions','/api/chat/moderation','/api/photo-reports'])assert.equal((await req(who,url)).status,403,url+' restricted');
+ for(const who of ['judge','head','head2'])for(const url of ['/api/usage','/api/chat/moderation','/api/photo-reports'])assert.equal((await req(who,url)).status,403,url+' restricted');
  for(const who of ['judge','head'])assert.equal((await req(who,'/api/admin-access')).data.members,undefined);
  assert.equal((await req('admin','/api/admin-access?agreement=judge')).status,403,'only owner sees other signatures');
  const record=await req('owner','/api/admin-access?agreement=judge');assert.deepEqual(record.data.records[0].signature,sign);assert(!('email' in record.data.records[0]));
@@ -62,6 +62,30 @@ try{
  for(const who of ['owner','admin','judge','head','head2'])assert.equal((await req(who,'/api/hunt',{action:'result',id:'photo-'+who,valid:false,seconds:1,note:'Self correction'})).status,403,'legacy correction cannot judge own image');
  assert.equal((await req('admin','/api/hunt',{action:'challenge',title:'Unauthorized',minutes:10,mode:'now'})).status,403,'only owner changes hunt settings');
  assert.equal((await req('judge','/api/judging',{kind:'photo',id:'photo-bob',status:'approved',elapsed:100,expectedValid:true,expectedNote:''})).status,403,'judge cannot alter elapsed time');
+ // All hunt deliveries are now available to signed judges, without widening
+ // general moderation access or revealing unfinished hunt secrets.
+ for(const who of ['judge','head','head2']){
+  const list=await req(who,'/api/admin-submissions?challenge=ended');assert.equal(list.status,200);assert.equal(list.data.items.length,8);assert(!JSON.stringify(list.data).includes('@secret.invalid'));
+  assert.equal(list.data.items.find(s=>s.user===who).canJudge,false);
+  assert.equal((await req(who,'/api/admin-submissions?challenge=active')).status,403);
+  assert.equal((await req(who,'/api/photo/locked?review=hunt')).status,403);
+  assert.equal((await req(who,'/api/photo/photo-alice?review=hunt')).status,200);
+  assert.equal((await req(who,'/api/admin-submissions',{id:'photo-'+who,valid:false,category:'word',reason:'Self',expectedValid:true,expectedNote:''})).status,403);
+ }
+ await db.prepare("INSERT INTO challenges(id,season,title,details,start,end,duration,created,daily) VALUES('direct-review','s','Test word','Test requirement',?,?,100000,1,0)").bind(now-100000,now-1000).run();
+ await db.prepare("INSERT INTO submissions(id,challenge,user,key,submitted,elapsed,valid) VALUES('unreported','direct-review','alice','unreported.jpg',?,3000,1)").bind(now-2000).run();await (await mf.getR2Bucket('BUCKET')).put('unreported.jpg',await readFile('tests/fixtures/metadata.jpg'));
+ const ordinary={id:'unreported',valid:false,category:'word',reason:'Bildet passer ikke jaktordet.',expectedValid:true,expectedNote:''};
+ assert.equal((await req('alice','/api/admin-submissions',ordinary)).status,403);
+ assert.equal((await req('judge','/api/admin-submissions',{...ordinary,reason:' '})).status,400);
+ const decisions=await Promise.all(['judge','head'].map(who=>req(who,'/api/admin-submissions',ordinary)));assert.deepEqual(decisions.map(r=>r.status).sort(),[200,409]);
+ assert.equal((await db.prepare("SELECT valid,elapsed FROM submissions WHERE id='unreported'").first()).valid,0);assert.equal((await db.prepare("SELECT elapsed FROM submissions WHERE id='unreported'").first()).elapsed,3000);
+ const judgedList=await req('judge','/api/admin-submissions?challenge=direct-review');assert.equal(judgedList.data.items.find(s=>s.id==='unreported').canJudge,false);
+ const restore={...ordinary,valid:true,category:'restore',reason:'Ny vurdering bekrefter motivet.',expectedValid:false,expectedNote:'Passer ikke ordet: Bildet passer ikke jaktordet.'};
+ assert.equal((await req('judge','/api/admin-submissions',restore)).status,403,'judge cannot overrule');assert.equal((await req('admin','/api/admin-submissions',restore)).status,403,'administrator cannot overrule');
+ const unreportedD=await db.prepare("SELECT id FROM review_decisions WHERE submission='unreported' AND current=1").first();assert.equal((await req('alice','/api/appeals',{decision:unreportedD.id,reason:'Motivet passer.'})).status,200);
+ const unreportedA=await db.prepare('SELECT id FROM review_appeals WHERE decision=?').bind(unreportedD.id).first();assert.equal((await req('head2','/api/judging',{action:'resolve-appeal',id:unreportedA.id,approve:true,reason:'Motivet oppfyller kravet.'})).status,200);
+ assert.equal((await db.prepare("SELECT valid FROM submissions WHERE id='unreported'").first()).valid,1);
+ await db.prepare("DELETE FROM challenges WHERE id='direct-review'").run();
  assert.equal((await req('judge','/api/photo/locked?review=case')).status,403);
  assert.equal((await req('judge','/api/photo/photo-alice?review=case')).status,200);
  assert.equal((await req('alice','/api/photo/photo-bob?review=case')).status,403);
@@ -96,7 +120,7 @@ try{
  await req(null,'/api/push/tick',{}, {'x-photo-hunt-scheduler-key':'test-key'});await req(null,'/api/push/tick',{}, {'x-photo-hunt-scheduler-key':'test-key'});assert.equal(packets.length,1);assert.equal(packets[0].channelId,'social');assert(!JSON.stringify(packets).includes('Test word'));
  assert.equal((await req('owner','/api/hunt',{action:'result',id:'photo-bob',valid:true,seconds:8,note:'Documented timing correction'})).status,200,'owner correction follows decision history');assert.equal((await db.prepare("SELECT elapsed FROM submissions WHERE id='photo-bob'").first()).elapsed,8000);
  // Backend role revocation invalidates both current sessions and stale permission claims.
- assert.equal((await req('admin','/api/admin-access',{action:'role',id:'judge',role:'player'})).status,200);assert.equal((await req('judge','/api/judging')).status,401);assert.equal((await db.prepare("SELECT COUNT(*) n FROM sessions WHERE user='judge'").first()).n,0);
+ assert.equal((await req('admin','/api/admin-access',{action:'role',id:'judge',role:'player'})).status,200);assert.equal((await req('judge','/api/judging')).status,401);assert.equal((await req('judge','/api/admin-submissions?challenge=ended')).status,401);assert.equal((await req('judge','/api/photo/photo-alice?review=hunt')).status,401);assert.equal((await db.prepare("SELECT COUNT(*) n FROM sessions WHERE user='judge'").first()).n,0);
  let doc=(await req('owner','/api/admin-access')).data;
  assert.equal((await req('admin','/api/admin-access',{action:'document',text:doc.text,expectedVersion:doc.version,material:true})).status,403);
  assert.equal((await req('owner','/api/admin-access',{action:'document',text:doc.text+'\nPresisering uten nye plikter.',expectedVersion:doc.version,material:false})).status,200);assert.equal((await req('head2','/api/judging')).status,200,'minor correction keeps acceptance');

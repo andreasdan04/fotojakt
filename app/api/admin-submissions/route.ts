@@ -1,11 +1,11 @@
 import {decideCase} from '@/lib/judging';
-import {admin,one,all,db,origin,wrap,json,fail,str} from '@/lib/server';
+import {staff,one,all,origin,wrap,json,fail,str} from '@/lib/server';
 import {canReviewHunt,requireHuntReview} from '@/lib/hunt-review';
 import {auditPrivacyRead} from '@/lib/privacy';
 export const dynamic='force-dynamic';
-export const POST=wrap(async(req:Request)=>{origin(req);const reviewer=await admin(req),b:any=await req.json(),id=str(b.id,100);if(typeof b.valid!=='boolean')fail('Velg gyldig eller ugyldig.');const categories:Record<string,string>={word:'Passer ikke ordet',rules:'Bryter reglene',other:'Annet',restore:'Godkjent på nytt'};if(!categories[b.category]||b.valid&&b.category!=='restore'||!b.valid&&b.category==='restore')fail('Velg gyldig årsak til vurderingen.');const note=categories[b.category]+': '+str(b.reason,240);const previous=await one("SELECT id FROM review_decisions WHERE submission=? AND kind='photo' AND current=1",id);const result=await decideCase({...b,reason:note,id,kind:'photo',status:b.valid?'approved':'rejected',override:!!previous,decision:previous?.id,administrative:true},reviewer);return json({...result,id,valid:b.valid?1:0,note});});
+export const POST=wrap(async(req:Request)=>{origin(req);const reviewer=await staff(req),b:any=await req.json(),id=str(b.id,100);if(typeof b.valid!=='boolean')fail('Velg gyldig eller ugyldig.');const categories:Record<string,string>={word:'Passer ikke ordet',rules:'Bryter reglene',other:'Annet',restore:'Godkjent på nytt'};if(!categories[b.category]||b.valid&&b.category!=='restore'||!b.valid&&b.category==='restore')fail('Velg gyldig årsak til vurderingen.');const note=categories[b.category]+': '+str(b.reason,240);const previous=await one("SELECT id FROM review_decisions WHERE submission=? AND kind='photo' AND current=1",id);const result=await decideCase({...b,reason:note,id,kind:'photo',status:b.valid?'approved':'rejected',override:!!previous,decision:previous?.id,administrative:true},reviewer);return json({...result,id,valid:b.valid?1:0,note});});
 export const GET=wrap(async(req:Request)=>{
- const reviewer=await admin(req),q=new URL(req.url).searchParams,now=Date.now(),challenge=q.get('challenge');
+ const reviewer=await staff(req),q=new URL(req.url).searchParams,now=Date.now(),challenge=q.get('challenge');
  if(!challenge){
   const seasons=await all('SELECT id,name,start,end FROM seasons ORDER BY start DESC');
   const selected=q.get('season');if(selected&&!seasons.some((s:any)=>s.id===selected))fail('Albumet finnes ikke.',404);
@@ -16,8 +16,8 @@ export const GET=wrap(async(req:Request)=>{
  const c=await requireHuntReview(str(challenge,100),reviewer.userId,now),user=q.get('user');
  const filter=user?' AND s.user=?':'';const args:any[]=[c.id,...(user?[str(user,100)]:[])];
  let cursor='';if(q.get('before')){const match=/^(\d{1,16}):([A-Za-z0-9:._-]{1,100})$/.exec(q.get('before')!);if(!match||!Number.isSafeInteger(Number(match[1])))fail('Ugyldig side.');cursor=' AND (s.submitted<? OR (s.submitted=? AND s.id<?))';args.push(Number(match[1]),Number(match[1]),match[2]);}
- const rows=await all(`SELECT s.id,s.user,s.submitted,s.elapsed,s.valid,s.note,s.caption,m.name,m.username,m.status,st.started FROM submissions s JOIN members m ON m.id=s.user LEFT JOIN starts st ON st.challenge=s.challenge AND st.user=s.user WHERE s.challenge=?${filter}${cursor} ORDER BY s.submitted DESC,s.id DESC LIMIT 37`,...args);
- const items=rows.slice(0,36).map((s:any)=>({...s,canJudge:s.user!==reviewer.userId,started:c.daily?s.started:c.start,registeredPhotoTime:(c.daily?s.started:c.start)?(c.daily?s.started:c.start)+s.elapsed:null}));
+ const rows=await all(`SELECT s.id,s.user,s.submitted,s.elapsed,s.valid,s.note,s.caption,m.name,m.username,m.status,st.started,(SELECT id FROM review_decisions d WHERE d.submission=s.id AND d.kind='photo' AND d.current=1) decision FROM submissions s JOIN members m ON m.id=s.user LEFT JOIN starts st ON st.challenge=s.challenge AND st.user=s.user WHERE s.challenge=?${filter}${cursor} ORDER BY s.submitted DESC,s.id DESC LIMIT 37`,...args);
+ const items=rows.slice(0,36).map((s:any)=>({...s,canJudge:s.user!==reviewer.userId&&(!s.decision||['owner','head_judge'].includes(reviewer.role)),reviewBlockedReason:s.user===reviewer.userId?'Du kan ikke dømme ditt eget bilde.':s.decision&&!['owner','head_judge'].includes(reviewer.role)?'Bildet har en avgjørelse. Bare hoveddommer eller eier kan omgjøre den.':null,started:c.daily?s.started:c.start,registeredPhotoTime:(c.daily?s.started:c.start)?(c.daily?s.started:c.start)+s.elapsed:null}));
  const participants=await all('SELECT DISTINCT m.id,m.name,m.username FROM submissions s JOIN members m ON m.id=s.user WHERE s.challenge=? ORDER BY m.name,m.id',c.id);
  const total=await one(`SELECT COUNT(*) count FROM submissions s WHERE s.challenge=?${filter}`,c.id,...(user?[user]:[]));
  await auditPrivacyRead(reviewer.userId,'hunt-submission-list',items.map((s:any)=>s.id));
