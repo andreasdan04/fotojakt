@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';
 import {readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -10,14 +11,16 @@ const jars={},ids={};async function request(user,body,path='/api/hunt'){const h=
 assert.equal((await request(null)).data.user,null);
 assert.equal((await request('owner',{action:'pin',pin:'0000'})).status,403);
 assert.equal((await request('owner',{action:'pin',pin:'9752'})).status,200);
+assert.equal((await request('owner')).data.admin,false,'agreement required before privileged access');
+await seedStaffAcceptance(db,(await request('owner')).data.user.id);
 assert.equal((await request('owner')).data.admin,true);
 assert.equal((await request('missing',{action:'register',name:'No install',pin:'123456'})).status,400);
-assert.equal((await request('guest',{action:'register',installed:true,name:'Testdeltaker',username:'testdeltaker',pin:'123456'})).status,200);
+assert.equal((await request('guest',{action:'register',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1',name:'Testdeltaker',username:'testdeltaker',pin:'123456'})).status,200);
 assert.equal((await request('guest')).data.user.status,'approved');
 assert.equal((await request('guest',{action:'season',name:'Ikke tillatt'})).status,403);
 ids.guest=(await request('guest')).data.user.id;
 assert.equal((await request('other',{action:'login',name:'Testdeltaker',pin:'000000'})).status,403);
-assert.equal((await request('other',{action:'register',installed:true,name:'TESTDELTAKER',username:'testdeltaker',pin:'111111'})).status,400);
+assert.equal((await request('other',{action:'register',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1',name:'TESTDELTAKER',username:'testdeltaker',pin:'111111'})).status,400);
 assert.equal((await request('other',{action:'set-pin',id:ids.guest,pin:'999999'})).status,401);
 assert.equal((await request('owner',{action:'member',id:ids.guest,status:'approved'})).status,200);
 async function seedPush(id){await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated) VALUES (?,?,?,?,?,?,?)').bind(id,id,'https://fcm.googleapis.com/'+id,'key','auth',1,1).run()}
@@ -28,10 +31,10 @@ assert.equal((await request('owner',{action:'challenge',title:'Finn noe gult',mi
 let d=(await request('guest')).data;const c=d.challenges[0];assert(c&&c.eligible&&!c.reveal);assert.equal(c.submissions.length,0);
 const token=(await request('guest',{action:'camera',id:c.id})).data.token;assert(token);
 // Seed a minimal JPEG payload to test authenticated R2 ingestion independently of camera hardware.
-const bytes=new Uint8Array(120);bytes.set([255,216,255]);const form=new FormData();form.set('challenge',c.id);form.set('token',token);form.set('photo',new Blob([bytes],{type:'image/jpeg'}),'capture.jpg');assert.equal((await request('guest',form)).status,200);
+const bytes=new Uint8Array(await readFile('tests/fixtures/metadata.jpg'));const form=new FormData();form.set('challenge',c.id);form.set('token',token);form.set('photo',new Blob([bytes],{type:'image/jpeg'}),'capture.jpg');assert.equal((await request('guest',form)).status,200);
 d=(await request('guest')).data;assert(d.challenges[0].own);assert(d.challenges[0].reveal);const sid=d.challenges[0].own.id;
 assert.equal((await request('guest',form)).status,200,'delivery retry is idempotent');
-await request('viewer',{action:'register',installed:true,name:'Tilskuer',username:'tilskuer',pin:'654321'});ids.viewer=(await request('viewer')).data.user.id;await seedPush(ids.viewer);await request('owner',{action:'member',id:ids.viewer,status:'approved'});
+await request('viewer',{action:'register',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1',name:'Tilskuer',username:'tilskuer',pin:'654321'});ids.viewer=(await request('viewer')).data.user.id;await seedPush(ids.viewer);await request('owner',{action:'member',id:ids.viewer,status:'approved'});
 assert.equal((await request('viewer',null,'/api/photo/'+sid)).status,403);
 assert.equal((await request(null,null,'/api/photo/'+sid)).status,401);
 assert.equal((await request('guest',{action:'react',id:sid,emoji:'🔥'})).status,200);
@@ -60,12 +63,12 @@ const forged=await mf.dispatchFetch('https://test.invalid/api/hunt',{headers:{'o
 assert.equal((await forged.json()).user,null);
 // Migrate an existing approved member without losing their ID.
 await db.prepare("INSERT INTO members(id,name,username,email,status,joined,approved,admin) VALUES ('legacy','Tidligere medlem','tidligere','','approved',1,1,0)").run();
-assert.equal((await request('new',{action:'register',installed:true,name:'Tidligere medlem',username:'tidligere',pin:'222222'})).status,400);
+assert.equal((await request('new',{action:'register',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1',name:'Tidligere medlem',username:'tidligere',pin:'222222'})).status,400);
 assert.equal((await request('owner',{action:'set-pin',id:'legacy',pin:'222222'})).status,200);
 await db.prepare("UPDATE members SET username='tidligere' WHERE id='legacy'").run();
 assert.equal((await request('legacy',{action:'login',name:'Tidligere medlem',pin:'222222'})).status,200);
 assert.equal((await request('legacy')).data.user.id,'legacy');
-const csrf=await mf.dispatchFetch('https://test.invalid/api/auth',{method:'POST',headers:{origin:'https://evil.invalid','content-type':'application/json'},body:JSON.stringify({action:'register',installed:true,name:'Evil',pin:'123456'})});assert.equal(csrf.status,403);
+const csrf=await mf.dispatchFetch('https://test.invalid/api/auth',{method:'POST',headers:{origin:'https://evil.invalid','content-type':'application/json'},body:JSON.stringify({action:'register',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1',name:'Evil',pin:'123456'})});assert.equal(csrf.status,403);
 for(let i=0;i<9;i++)await request('bad',{action:'login',name:'Brute force',pin:'000000'});
 assert.equal((await request('bad',{action:'login',name:'Brute force',pin:'000000'})).status,429);
 // Deletion cascades, blob removal, admin authorization, isolation and repeat safety.

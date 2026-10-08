@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';
 import {readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -10,14 +11,16 @@ const jars={},ids={};async function request(user,body,path='/api/hunt'){const h=
 assert.equal((await request(null)).data.user,null);
 assert.equal((await request('owner',{action:'pin',pin:'0000'})).status,403);
 assert.equal((await request('owner',{action:'pin',pin:'9752'})).status,200);
+assert.equal((await request('owner')).data.admin,false,'agreement required before privileged access');
+await seedStaffAcceptance(db,(await request('owner')).data.user.id);
 assert.equal((await request('owner')).data.admin,true);
 assert.equal((await request('missing',{action:'register',name:'No install',pin:'123456'})).status,400);
-assert.equal((await request('guest',{action:'register',installed:true,name:'Testdeltaker',username:'testdeltaker',pin:'123456'})).status,200);
+assert.equal((await request('guest',{action:'register',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1',name:'Testdeltaker',username:'testdeltaker',pin:'123456'})).status,200);
 assert.equal((await request('guest')).data.user.status,'approved');
 assert.equal((await request('guest',{action:'season',name:'Ikke tillatt'})).status,403);
 ids.guest=(await request('guest')).data.user.id;
 assert.equal((await request('other',{action:'login',name:'Testdeltaker',pin:'000000'})).status,403);
-assert.equal((await request('other',{action:'register',installed:true,name:'TESTDELTAKER',username:'testdeltaker',pin:'111111'})).status,400);
+assert.equal((await request('other',{action:'register',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1',name:'TESTDELTAKER',username:'testdeltaker',pin:'111111'})).status,400);
 assert.equal((await request('other',{action:'set-pin',id:ids.guest,pin:'999999'})).status,401);
 assert.equal((await request('owner',{action:'member',id:ids.guest,status:'approved'})).status,200);
 async function seedPush(id){await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated) VALUES (?,?,?,?,?,?,?)').bind(id,id,'https://fcm.googleapis.com/'+id,'key','auth',1,1).run()}

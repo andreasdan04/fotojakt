@@ -2,6 +2,8 @@
 // Keep the player-facing version number stable during each Oslo calendar day.
 export const releases=[
  {version:53,date:'2026-10-08',summary:'Fleksible jakttider, fungerende frivillig statistikk, dommerroller, håndskrevet taushetserklæring og klagebehandling.',changes:[
+  {type:'Bugfiks' as const,text:'Dommere og hoveddommere finner nå Dommerpanel fra profilen. Ordet vises direkte ved start. Jaktklokken bruker servertid og en monoton teller, og bildet beholder tiden fra utløseren gjennom offline-kø og nye leveringsforsøk.'},
+  {type:'Bugfiks' as const,text:'Samtidig opplasting kan ikke lenger blande ett bilde med tiden fra et annet forsøk. Bildekøen krever bekreftet levering før lokal sletting, og lynjakter klargjøres korrekt for offline-bruk.'},
   {type:'Nyhet' as const,text:'Dommer og hoveddommer har et eget arbeidsområde i administrasjonen med bonusbilder, rapporterte bilder og egne vurderinger. Team og roller viser rolle og signeringsstatus; administrator kan utnevne dommere, og bare eier kan utnevne administratorer.'},
   {type:'Nyhet' as const,text:'Taushetserklæringen signeres med faktisk underskrift på skjermen. Navn, signatur, tidspunkt og versjon lagres privat. Vesentlige endringer krever ny underskrift; tidligere signeringer beholdes etter oppbevaringsreglene. Signaturen er dokumentasjon på aksept, ikke BankID-verifisert.'},
   {type:'Bugfiks' as const,text:'Ingen kan dømme sitt eget bilde. Spillere kan klage på avslag med begrunnelse; en habil hoveddommer avgjør klagen. Poeng oppdateres uten dobbeltføring, og resultatet vises i varsler. Push sendes bare når varsler er valgt.'},

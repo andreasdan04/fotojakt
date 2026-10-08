@@ -1,15 +1,30 @@
-import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import ts from 'typescript';
+import {createRequire} from 'node:module';
+import assert from 'node:assert/strict';
 // Transactional IndexedDB test double. Device/browser behavior is not simulated.
 const stores=new Map();let quota=false;
 const database={createObjectStore(name){stores.set(name,new Map())},close(){},transaction(name){const tx={objectStore(){const map=stores.get(name);const request=operation=>{const r={};queueMicrotask(()=>{if(quota){tx.onerror?.();return}r.result=operation();r.onsuccess?.();queueMicrotask(()=>tx.oncomplete?.())});return r};return {put:value=>request(()=>{map.set(value.id,structuredClone(value));return value.id}),get:id=>request(()=>structuredClone(map.get(id))),getAll:()=>request(()=>[...map.values()].map(v=>structuredClone(v))),delete:id=>request(()=>map.delete(id))}}};return tx}};
 globalThis.indexedDB={open(){const r={result:database};queueMicrotask(()=>{if(!stores.size)r.onupgradeneeded?.();r.onsuccess?.()});return r}};globalThis.window=new EventTarget();Object.defineProperty(globalThis,'navigator',{value:{onLine:false},configurable:true});
-const js=ts.transpileModule(readFileSync(new URL('../lib/photo-outbox.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+const require=createRequire(import.meta.url),{build}=createRequire(require.resolve('vite'))('esbuild');
+const js=(await build({entryPoints:['lib/photo-outbox.ts'],bundle:true,format:'esm',write:false})).outputFiles[0].text;
 const {savePhoto,getPhoto,listPhotos,deliverPhoto}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
 const photo={id:'owner:c',user:'owner',challenge:'c',title:'kopp',token:'token',photo:new Blob(['jpeg']),taken:Date.now()-1000,elapsed:23583,ready:true};await savePhoto(photo);assert.equal((await getPhoto(photo.id)).elapsed,23583);assert.equal((await listPhotos('other')).length,0);
 globalThis.fetch=()=>{throw Error('fetch must not run offline')};assert.equal(await deliverPhoto(photo),false);assert(await getPhoto(photo.id));
 navigator.onLine=true;let calls=0;globalThis.fetch=async url=>{calls++;if(url==='/api/hunt'&&calls%2===1)return Response.json({user:{id:'owner'}});throw TypeError('network switched')};assert.equal(await deliverPhoto(photo),false);assert.equal((await getPhoto(photo.id)).elapsed,23583);assert.equal((await getPhoto(photo.id)).ready,true);
 calls=0;globalThis.fetch=async (url,options)=>{calls++;if(!options.method)return Response.json({user:{id:'other'}});throw Error('wrong account must not upload')};assert.equal(await deliverPhoto(photo),false);assert.equal(calls,1);assert(await getPhoto(photo.id));
 calls=0;globalThis.fetch=async(url,options)=>{calls++;if(!options.method)return Response.json({user:{id:'owner'}});assert.equal(options.body.get('taken'),String(photo.taken));return Response.json({ok:true,elapsed:23583})};assert.deepEqual(await Promise.all([deliverPhoto(photo),deliverPhoto(photo)]),[true,true]);assert.equal(calls,2,'concurrent syncs share one delivery');assert.equal(await getPhoto(photo.id),undefined);
+await savePhoto(photo);globalThis.fetch=async(url,options)=>!options.method?Response.json({user:{id:'owner'}}):Response.json({});assert.equal(await deliverPhoto(photo),false,'an unconfirmed HTTP 200 must not erase the original photo');assert(await getPhoto(photo.id));
 await savePhoto(photo);globalThis.fetch=async(url,options)=>!options.method?Response.json({user:{id:'owner'}}):Response.json({error:'Fristen er ute'},{status:400});assert.equal(await deliverPhoto(photo),false);assert.equal((await getPhoto(photo.id)).blocked,true,'rejected photo stays local for recovery');
 quota=true;await assert.rejects(savePhoto(photo),/Lokal lagring/);
 console.log('PASS: local blob/timestamp persistence, offline retention, network-switch retry, account isolation, delivery deduplication, permanent-error retention and storage failure.');
+// A wrong phone date must not purge an unsent photo or alter a prepared lease.
+quota=false;const realDateNow=Date.now,realPerformance=globalThis.performance;let mono=1000,wall=realDateNow();
+Object.defineProperty(globalThis,'performance',{value:{now:()=>mono,timeOrigin:123456},configurable:true});Date.now=()=>wall;
+const {saveLease,prepareCamera}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+const serverNow=realDateNow(),id='owner:lightning:test';
+await saveLease({id,token:'cached',now:serverNow,started:serverNow-10000,end:serverNow+3600000,localNow:wall,revision:0,clock:{server:serverNow,monotonic:mono,timeOrigin:123456,wall}});
+await savePhoto(photo);wall+=365*86400000;assert.equal((await listPhotos('owner')).length,1,'unsynchronized wall clock cannot erase the local picture');
+navigator.onLine=false;mono+=23583;globalThis.fetch=()=>{throw Error('offline lease must not fetch')};assert.equal((await prepareCamera('owner','lightning:test',false,serverNow-10000,0,serverNow+3600000)).token,'cached');
+navigator.onLine=true;globalThis.fetch=async()=>{throw TypeError('offline while browser reports online')};assert.equal((await prepareCamera('owner','lightning:test',false,serverNow-10000,0,serverNow+3600000)).token,'cached','transient connection failure can use a monotonic lease from this page');globalThis.fetch=async()=>Response.json({token:'fresh',now:serverNow+23583,started:serverNow-10000,end:serverNow+3600000,revision:0});assert.equal((await prepareCamera('owner','lightning:test',false,serverNow-10000,0,serverNow+3600000)).token,'fresh','online camera preparation reanchors to the server');
+assert.equal((await listPhotos('owner',serverNow)).length,1);assert.equal((await listPhotos('owner',serverNow+8*86400000)).length,0,'seven-day cleanup uses server time');
+Date.now=realDateNow;Object.defineProperty(globalThis,'performance',{value:realPerformance,configurable:true});
+console.log('PASS: prepared lightning lease with wrong device clock, fresh online anchor and server-timed local retention.');

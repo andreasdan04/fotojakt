@@ -29,9 +29,12 @@ export async function uploadPhoto(req:Request,m:any){
  const bytes=stripImageMetadata(await file.arrayBuffer(),file.type),sig=bytes;if(sig[0]!==255||sig[1]!==216||sig[2]!==255)fail('Ugyldig bilde.');
  // The lease token is also the submission ID: a lost response can be retried
  // safely without creating another image or changing the registered time.
- const key='photos/'+token+'.jpg';await bucket().put(key,bytes,{httpMetadata:{contentType:'image/jpeg'}});
+ // Each concurrent attempt uploads to its own immutable candidate key. Only
+ // the row that wins the database constraint owns that object. A retry must
+ // never overwrite the winner's image while keeping its earlier time.
+ const key='photos/'+token+'/'+crypto.randomUUID()+'.jpg';await bucket().put(key,bytes,{httpMetadata:{contentType:'image/jpeg'}});
  const insert= db().prepare('INSERT OR IGNORE INTO submissions(id,challenge,user,key,submitted,elapsed,valid,note) SELECT ?,?,?,?,?,?,1,? WHERE EXISTS(SELECT 1 FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.id=? AND c.revision=? AND s.end IS NULL) AND EXISTS(SELECT 1 FROM captures WHERE token=? AND used=0)').bind(token,challenge,m.id,key,received,elapsed,'',challenge,cap.revision,token);
- const consent=form.get('bonus_opt_in')==='true';const result=await db().batch([insert,...(consent?[db().prepare("INSERT OR IGNORE INTO settings(key,value) SELECT ?,? WHERE EXISTS(SELECT 1 FROM submissions WHERE id=? AND user=?)").bind('bonus-opt:'+token,JSON.stringify({user:m.id,version:'2026-10-06.1',created:received,purpose:'bonus'}),token,m.id)]:[])]);const inserted=result[0];
- if(!inserted.meta.changes){const saved=await one('SELECT id,elapsed FROM submissions WHERE challenge=? AND user=?',challenge,m.id);if(saved?.id===token)return json({ok:true,elapsed:saved.elapsed});await bucket().delete(key);fail('Oppgaven er avsluttet eller et annet bilde er levert.',409)}
+ const consent=form.get('bonus_opt_in')==='true';const result=await db().batch([insert,...(consent?[db().prepare("INSERT OR IGNORE INTO settings(key,value) SELECT ?,? WHERE EXISTS(SELECT 1 FROM submissions WHERE id=? AND user=? AND key=?)").bind('bonus-opt:'+token,JSON.stringify({user:m.id,version:'2026-10-06.1',created:received,purpose:'bonus'}),token,m.id,key)]:[])]);const inserted=result[0];
+ if(!inserted.meta.changes){const saved=await one('SELECT id,key,elapsed FROM submissions WHERE challenge=? AND user=?',challenge,m.id);await bucket().delete(key);if(saved?.id===token)return json({ok:true,elapsed:saved.elapsed});fail('Oppgaven er avsluttet eller et annet bilde er levert.',409)}
  await run('UPDATE captures SET used=1,taken=? WHERE token=?',finished,token);try{await recordUsage(m.id,'submit')}catch{console.error('Usage recording unavailable')}return json({ok:true,elapsed});
 }

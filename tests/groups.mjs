@@ -1,3 +1,4 @@
+import {seedStaffAcceptance} from './helpers/staff.mjs';
 import {createRequire} from 'node:module';import {readFile,readdir} from 'node:fs/promises';import path from 'node:path';import assert from 'node:assert/strict';import crypto from 'node:crypto';
 const require=createRequire(import.meta.url),wr=createRequire(require.resolve('wrangler/package.json')),{Miniflare,Response:MFResponse}=wr('miniflare');
 let aiMode='good',calls=0;const words=['kopp','sykkel','stein','sko','lampe','hund'];
@@ -5,18 +6,19 @@ const mf=new Miniflare({modules:(await readdir('dist/server',{recursive:true})).
 try{
 const db=await mf.getD1Database('DB');for(const migration of(await readdir('drizzle')).filter(p=>p.endsWith('.sql')&&p<'0009').sort())for(const stmt of(await readFile('drizzle/'+migration,'utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(stmt).run();
 const now=Date.now(),headers={};for(const user of ['admin','early','late','pending']){await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES (?,?,?,?,?,?,?)').bind(user,user,'',user==='pending'?'pending':'approved',now-10000,now-5000,user==='admin'?1:0).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES (?,?,?)').bind(crypto.createHash('sha256').update(user).digest('hex'),user,now+86400000).run();headers[user]={cookie:'hunt_login='+user+(user==='admin'?'; hunt_admin=admin':''),'content-type':'application/json'};await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated) VALUES (?,?,?,?,?,?,?)').bind(user,user,'https://fcm.googleapis.com/'+user,'k','a',1,1).run();}
-await db.prepare('INSERT INTO sessions(token,user,expires) VALUES (?,?,?)').bind('admin','admin',now+86400000).run();
+await db.prepare('INSERT INTO sessions(token,user,expires) VALUES (?,?,?)').bind(crypto.createHash('sha256').update('admin').digest('hex'),'admin',now+86400000).run();
 async function req(user,body,url='/api/hunt'){const h={...headers[user]};let data;if(body instanceof FormData){const encoded=new Response(body);h['content-type']=encoded.headers.get('content-type');data=new Uint8Array(await encoded.arrayBuffer())}else data=body?JSON.stringify(body):undefined;const r=await mf.dispatchFetch('https://test.invalid'+url,{method:body?'POST':'GET',headers:h,...(data?{body:data}:{})});return {status:r.status,data:await r.json()}}
 
 
 for(const stmt of(await readFile('drizzle/0009_nervous_the_professor.sql','utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(stmt).run();
 for(const migration of(await readdir('drizzle')).filter(p=>p.endsWith('.sql')&&p>='0010').sort())for(const stmt of(await readFile('drizzle/'+migration,'utf8')).split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean))await db.prepare(stmt).run();
+await seedStaffAcceptance(db,'admin',now);await db.prepare("INSERT OR REPLACE INTO settings(key,value) VALUES('owner','admin')").run();
 assert.equal((await db.prepare("SELECT COUNT(*) n FROM group_members WHERE group_id='familien-glum'").first()).n,4);
 assert.equal((await db.prepare("SELECT owner FROM groups WHERE id='familien-glum'").first()).owner,'admin');
 assert.equal((await db.prepare('SELECT COUNT(*) n FROM friendships').first()).n,6);
 assert.equal((await db.prepare("SELECT status FROM members WHERE id='pending'").first()).status,'approved');
 const social=(user,body)=>req(user,body,'/api/social');
-async function register(name){const r=await mf.dispatchFetch('https://test.invalid/api/auth',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'register',name,username:name,pin:'123456',installed:true})});assert.equal(r.status,200,await r.clone().text());headers[name]={'content-type':'application/json',cookie:r.headers.get('set-cookie').match(/hunt_login=([^;]+)/)[0]};const u=(await req(name)).data.user;assert.equal(u.status,'approved');return u.id;}
+async function register(name){const r=await mf.dispatchFetch('https://test.invalid/api/auth',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'register',name,username:name,pin:'123456',installed:true,ageConfirmed:true,privacyVersion:'2026-10-06.1'})});assert.equal(r.status,200,await r.clone().text());headers[name]={'content-type':'application/json',cookie:r.headers.get('set-cookie').match(/hunt_login=([^;]+)/)[0]};const u=(await req(name)).data.user;assert.equal(u.status,'approved');return u.id;}
 assert.equal((await social('admin',{action:'group-role',group:'familien-glum',user:'early',role:'admin'})).status,200);
 assert.equal((await social('early')).data.groups[0].canManage,true);
 assert.equal((await social('early',{action:'group-role',group:'familien-glum',user:'late',role:'admin'})).status,403);
@@ -46,7 +48,7 @@ await db.prepare("INSERT INTO seasons(id,name,start) VALUES('album','Test',1)").
 for(const [id,user] of [['p1','early'],['p2',nova],['p3',lars]]){await db.prepare('INSERT INTO submissions(id,challenge,user,key,submitted,elapsed) VALUES(?,?,?,?,?,?)').bind(id,'hunt',user,id,1,1000).run();await (await mf.getR2Bucket('BUCKET')).put(id,'jpeg');}
 const ids=async user=>(await req(user)).data.challenges.find(c=>c.id==='hunt').submissions.map(p=>p.id).sort();
 assert.deepEqual(await ids('early'),['p1']);assert.deepEqual(await ids('admin'),['p1'],'admin does not bypass group privacy');assert.deepEqual(await ids('nova'),['p2','p3']);
-const outsider=(await req('early',undefined,'/api/hunt?profile='+lars));assert.equal(outsider.status,200);assert.equal(outsider.data.canSeePhotos,false);assert.deepEqual(outsider.data.photos,[]);assert.equal(outsider.data.profile.friendCount,1);assert.equal(outsider.data.friendship,null);
+const outsider=(await req('early',undefined,'/api/hunt?profile='+lars));assert.equal(outsider.status,200);assert.equal(outsider.data.canSeePhotos,false);assert.deepEqual(outsider.data.photos,[]);assert.equal(outsider.data.profile.friendCount,null,'friend count is private until explicitly enabled');assert.equal(outsider.data.friendship,null);
 assert.equal((await req('nova')).data.user.friendCount,1);
 assert.equal((await req('nova',undefined,'/api/hunt?profile='+lars)).data.friendship.status,'accepted');
 assert.equal((await mf.dispatchFetch('https://test.invalid/api/photo/p3',{headers:headers.early})).status,403);
@@ -144,7 +146,7 @@ assert.equal((await req('nova')).data.user.settings.theme,'dark','theme persists
 assert.equal((await req('nova',{action:'appearance',theme:'invalid'})).status,400);
 assert.equal((await req('nova',{action:'profile-settings',bio:'Ny bio',featuredBadge:'first-photo',showFriendCount:false})).status,200);
 assert.equal((await req('nova')).data.user.settings.theme,'dark','profile edits preserve theme');
-const bugForm=new FormData();bugForm.set('description','Filterknappen virker ikke');bugForm.set('page','Bilder');bugForm.set('photo',new Blob([new Uint8Array([255,216,255,...new Array(100).fill(0)])],{type:'image/jpeg'}),'screen.jpg');
+const bugForm=new FormData();bugForm.set('description','Filterknappen virker ikke');bugForm.set('page','Bilder');bugForm.set('photo',new Blob([new Uint8Array(await readFile('tests/fixtures/metadata.jpg'))],{type:'image/jpeg'}),'screen.jpg');
 assert.equal((await req('nova',bugForm,'/api/bugs')).status,200);
 assert.equal((await req('nova',undefined,'/api/bugs')).status,403,'bug inbox is admin only');
 assert.equal((await mf.dispatchFetch('https://test.invalid/api/bugs')).status,401);
