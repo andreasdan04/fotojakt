@@ -29,7 +29,7 @@ export function hasRead(reader:any,message:any){return !!reader&&(reader.readCre
 export async function publicChatRoom(user:string){
  const reader=await one("SELECT m.joined,COALESCE(json_extract(s.value,'$.created'),0) readCreated,COALESCE(json_extract(s.value,'$.id'),'') readId FROM members m LEFT JOIN settings s ON s.key='dm-read:'||m.id||':public' WHERE m.id=?",user);
  const notice=await one("SELECT x.id,x.user,x.body,x.created,m.name,COUNT(*) OVER() unread FROM chat_messages x JOIN members m ON m.id=x.user WHERE x.room='public' AND m.status='approved' AND x.user!=? AND x.created>=? AND (x.created>? OR (x.created=? AND x.id>?)) ORDER BY x.created DESC,x.id DESC LIMIT 1",user,reader?.joined||0,reader?.readCreated||0,reader?.readCreated||0,reader?.readId||'');
- const room:any={id:'public',name:'Felles chat',unread:notice?.unread||0,latestId:notice?.id||null,latestCreated:notice?.created||0};await attachChatPreviews([room]);room.lastActivity=room.lastMessage?.created||0;return room;
+ const room:any={id:'public',name:'Felles chat',unread:notice?.unread||0,latestId:notice?.id||null,latestCreated:notice?.created||0};await attachChatPreviews([room]);if(room.lastMessage)delete room.lastMessage.readBy;room.lastActivity=room.lastMessage?.created||0;return room;
 }
 export async function queueChat(message:string){const now=Date.now();await run(`INSERT OR IGNORE INTO chat_push(id,message,subscription,created,expires)
  SELECT 'chat:'||x.id||':'||p.id,x.id,p.id,?,? FROM chat_messages x JOIN group_members gm ON gm.group_id=x.room JOIN members m ON m.id=gm.user JOIN push_subscriptions p ON p.user=gm.user

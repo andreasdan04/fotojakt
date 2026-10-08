@@ -1,7 +1,28 @@
 // One player-facing version per Oslo calendar day. Add same-day work to its summary.
 // Keep the player-facing version number stable during each Oslo calendar day.
 export const releases=[
+ {version:53,date:'2026-10-08',summary:'Fleksible jakttider, fungerende frivillig statistikk, bonusvurdering og nye poengtavlefiltre.',changes:[
+  {type:'Endring' as const,text:'Formiddagsjakt 06.00–17.00, med første frivillige pushvarsel kl. 07.00. Ettermiddagsjakt 14.00–00.00 åpnes etter levert formiddagsbilde, eller for alle kl. 17.00. Jaktkort viser tilgjengelig, fullført eller låst.'},
+  {type:'Bugfiks' as const,text:'Frivillig statistikk starter etter at samtykket er hentet. Admin ser reelle summer for samtykke, aktive brukere, besøk, økter og funksjoner per dag og periode, også ved små utvalg. Tilbaketrekking stopper registrering og sletter tidligere tellinger.'},
+  {type:'Bugfiks' as const,text:'Expo-testvarsler fungerer også uten Web Push-nøkler. Kameraøkter følger oppdatert frist, og feil ved lesing av personvernvalg vises tydelig.'},
+  {type:'Bugfiks' as const,text:'Popupen for nytt jaktord med knappen Til dagens ord er fjernet. Jakten vises fortsatt på forsiden, og frivillige varsler beholdes.'},
+  {type:'Nyhet' as const,text:'Poengtavlen har nye filtre for Alle mine grupper og Lynjakt. Felles gruppetavle teller hver spiller én gang. Lynjakttavlen er flyttet fra toppen til poengtavlen.'},
+  {type:'Nyhet' as const,text:'Glemte du bonusvalget? Send ditt leverte bilde til manuell bonusvurdering fra jaktkortet eller Se bilder, også etter jaktens slutt. Bilde og registrert tid beholdes.'},
+  {type:'Bugfiks' as const,text:'Hemmelig jaktinnhold skjermes også for admin i feed, profiler og bildevisning frem til egen innlevering eller jaktens slutt.'},
+ {type:'Bugfiks' as const,text:'Adminlisten viser også rapporter sendt gjennom bildeavstemning, inkludert eldre klienter. Rapportlisten oppdateres automatisk. Låste rapporter vises som mottatt, mens bilde, begrunnelse og jaktord åpnes etter egen innlevering eller jaktens slutt.'},
+ {type:'Bugfiks' as const,text:'Ordforslag lagres nå også når ordet finnes i ordbanken eller allerede er foreslått av en annen spiller. Gjentatt innsending av ditt eget forslag gir en tydelig beskjed, uten duplikater.'},
+ {type:'Bugfiks' as const,text:'Innlogget admin ser forslagene også i ordkassen på forsiden. Oppdater-knapp og tidspunkt for innsending gjør nye forslag enklere å finne. Spillere ser en mottakskvittering uten å få avslørt ordene eller vurderingene.'}
+ ]},
+ {version:52,date:'2026-10-07',summary:'Tydelige regler, frivillig statistikk og enklere rapportering og adminkontroll.',changes:[
+ {type:'Nyhet' as const,text:'Kort regelbekreftelse før din neste jaktstart, med utvidbart regelverk og avkrysning. Aksept lagres på kontoen én gang per regelversjon. Klokken starter først når jakten starter.'},
+ {type:'Endring' as const,text:'Bruksstatistikk har et separat og helt frivillig ja/nei-valg. Valget kan endres under Innstillinger → Personvern. Nei eller ubesvart valg hindrer ikke spillet.'},
+ {type:'Endring' as const,text:'Bare admin kan se hvem som har lest meldinger i felleschatten. To navn vises først; trykk for å åpne hele leselisten. Private chatter beholder lesestatus.'},
+ {type:'Nyhet' as const,text:'Rapporter jaktbilder til admin fra ⋯-menyen, også når bildet har en avstemning. Begrunnelse er obligatorisk. Admin ser bildet, jaktordet, beskrivelsen og rapporten, og kan merke det gyldig eller ugyldig med begrunnelse.'},
+ {type:'Endring' as const,text:'Bonusoppdrag vurderes manuelt. Felleschat bruker en lokal ordliste for flagging, uten automatisk bildeanalyse. Admininnsyn krever personlig innlogging og godkjent taushetserklæring.'},
+ {type:'Bugfiks' as const,text:'Ordkassen viser om AI faktisk vurderte forslagene eller var utilgjengelig. Ordforslag kan slås opp i Bokmålsordboka; ordbokforklaringer og AI-vurderinger vises separat.'}
+ ]},
  {version:51,date:'2026-10-06',summary:'Gruppe- og vennechatter, bildedeling, adminoppdateringer og morgenjakt fra kl. 06.00.',changes:[
+ {type:'Endring' as const,text:'Personvernside, frivillig statistikk og AI-bonus, innsyn og kontosletting, generiske pushvarsler og tryggere bildedeling. Private chatter sendes ikke automatisk til AI. Nye kontoer krever 13-årsbekreftelse.'},
  {type:'Endring' as const,text:'Bildeavstemninger varer nå opptil 3 timer og trenger minst 3 svar. Over 50 % av svarene må være gyldig eller ugyldig for å avgjøre bildet. Uten flertall beholdes bildet. Et underkjent bilde kan tas på nytt før jaktens frist; den opprinnelige starttiden beholdes.'},
  {type:'Endring' as const,text:'Morgenjakten åpner nå kl. 06.00 norsk tid og varer til kl. 15.00. Morgenvarsel, nedtelling og planlagte jakter følger den nye tiden.'},
  {type:'Bugfiks' as const,text:'Gruppedeling, kopierte invitasjoner og feltet Gruppelenke bruker nå foto-jakt.no, også når appen åpnes fra det gamle domenet. Eksisterende gruppeinvitasjoner beholder samme invitasjonskode.'},

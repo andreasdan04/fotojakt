@@ -218,6 +218,20 @@
       "when": 1791302997503,
       "tag": "0030_native_push",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1791400973224,
+      "tag": "0031_bizarre_franklin_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1791401923078,
+      "tag": "0032_bored_speedball",
+      "breakpoints": true
     }
   ]
 }

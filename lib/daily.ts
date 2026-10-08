@@ -4,9 +4,9 @@ import {approvedWordBank} from './word-box';
 import {NORWEGIAN_WORDS,allowedWords,completeWords} from './daily-words';
 import {env} from 'cloudflare:workers';
 import {all,one,run,db,fail,str} from './server';
-export const osloDay=(time:number)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Oslo',year:'numeric',month:'2-digit',day:'2-digit'}).format(time);
-export function osloTime(day:string,hour:number){const target=Date.parse(day+'T'+String(hour).padStart(2,'0')+':00:00Z');let value=target;for(let i=0;i<3;i++){const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Oslo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(value);const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));value+=target-Date.parse(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}Z`)}return value}
-export const nextDay=(day:string)=>new Date(Date.parse(day+'T12:00:00Z')+86400000).toISOString().slice(0,10);
+import {osloDay,osloTime,nextDay,huntWindow} from './hunt-times';
+import {requireDailyAccess} from './daily-access';
+export {osloDay,osloTime,nextDay} from './hunt-times';
 export async function createAlbum(b:any){
  const name=str(b.name,70),first=str(b.first,10),last=str(b.last,10),now=Date.now();
  for(const day of [first,last])if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day))||new Date(day).toISOString().slice(0,10)!==day)fail('Velg gyldige datoer.');
@@ -19,11 +19,11 @@ export async function createAlbum(b:any){
  const slots=days.flatMap(day=>[{day,slot:1},{day,slot:2}]);
  const words=await generateWords(slots.map(x=>x.day),await all('SELECT title,day FROM challenges WHERE daily=1'),slots.map(x=>x.slot===2));
  const descriptions=await describeWords(words);const id=crypto.randomUUID(),d=db();const statements=[d.prepare('INSERT INTO seasons(id,name,start,daily,first_day,last_day) VALUES (?,?,?,1,?,?)').bind(id,name,osloTime(first,6),first,last)];
- slots.forEach(({day,slot},i)=>{const start=osloTime(day,slot===1?6:15),end=slot===1?osloTime(day,15):osloTime(nextDay(day),0);statements.push(d.prepare('INSERT INTO challenges(id,season,title,details,start,end,duration,created,daily,day,slot) VALUES (?,?,?,?,?,?,?,?,1,?,?)').bind(crypto.randomUUID(),id,words[i],descriptions[words[i]],start,end,end-start,now,day,slot))});
+ slots.forEach(({day,slot},i)=>{const {start,end}=huntWindow(day,slot);statements.push(d.prepare('INSERT INTO challenges(id,season,title,details,start,end,duration,created,daily,day,slot) VALUES (?,?,?,?,?,?,?,?,1,?,?)').bind(crypto.randomUUID(),id,words[i],descriptions[words[i]],start,end,end-start,now,day,slot))});
  try{await d.batch(statements)}catch{fail('Datoene ble opptatt av et annet album. Last siden på nytt.',409)}return {ok:true,id,days:days.length};
  }finally{await run("UPDATE settings SET value='0' WHERE key='ai_album_lock' AND value=?",lease)}
 }
-export async function startDaily(id:string,m:any){const now=Date.now();const c=await one('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.id=? AND c.daily=1 AND s.end IS NULL AND c.start<=? AND c.end>?',id,now,now);if(!c)fail('Dagens ord er ikke åpent. Nye jakter åpner kl. 06.00 og 15.00 norsk tid.');await run('INSERT OR IGNORE INTO starts(challenge,user,started) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM challenges WHERE id=? AND revision=?)',id,m.id,now,id,c.revision);const attempt=await one('SELECT started FROM starts WHERE challenge=? AND user=?',id,m.id);if(!attempt)fail('Oppgaven er slettet.');if((await one('SELECT revision FROM challenges WHERE id=?',id))?.revision!==c.revision)fail('Jaktordet er byttet. Start på nytt.',409);return {ok:true,title:c.title,details:c.details,started:attempt.started};}
+export async function startDaily(id:string,m:any){const now=Date.now();const c=await one('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.id=? AND c.daily=1 AND s.end IS NULL AND c.start<=? AND c.end>?',id,now,now);if(!c)fail('Dagens ord er ikke åpent. Nye jakter åpner kl. 06.00 og 14.00 norsk tid.');await requireDailyAccess(c,m.id,now);await run('INSERT OR IGNORE INTO starts(challenge,user,started) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM challenges WHERE id=? AND revision=?)',id,m.id,now,id,c.revision);const attempt=await one('SELECT started FROM starts WHERE challenge=? AND user=?',id,m.id);if(!attempt)fail('Oppgaven er slettet.');if((await one('SELECT revision FROM challenges WHERE id=?',id))?.revision!==c.revision)fail('Jaktordet er byttet. Start på nytt.',409);return {ok:true,title:c.title,details:c.details,started:attempt.started};}
 
 async function generateWords(days:string[],previous:any[],movement:boolean[]){
  const bank=[...new Set([...NORWEGIAN_WORDS,...await approvedWordBank()])];
@@ -53,14 +53,14 @@ export async function upgradeMorningStart(now=Date.now()){
 export async function upgradeFutureDaily(now=Date.now()){
  await upgradeMorningStart(now);
  const rows=await all('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.daily=1 AND c.day IS NOT NULL AND c.slot=0 AND c.start>? AND s.end IS NULL ORDER BY c.start',now);
- if(!rows.length)return;
+ if(!rows.length){await upgradeHuntWindows(now);return;}
  const history=await all('SELECT title,day FROM challenges WHERE daily=1');
  const words=completeWords([],rows.map((r:any)=>r.day),history,rows.map(()=>true));
  const d=db(),q:any[]=[];
- rows.forEach((r:any,i:number)=>{const middle=osloTime(r.day,15);
+ rows.forEach((r:any,i:number)=>{const middle=osloTime(r.day,14),morningEnd=osloTime(r.day,17);
  q.push(d.prepare("INSERT OR IGNORE INTO challenges(id,season,title,details,start,end,duration,created,daily,day,slot) SELECT ?,season,?,?,?,end,end-?, ?,1,day,2 FROM challenges WHERE id=? AND slot=0 AND start>?").bind(crypto.randomUUID(),words[i],wordMeaning(words[i])||genericDescription(words[i]),middle,middle,now,r.id,now));
- q.push(d.prepare('UPDATE challenges SET end=?,duration=?-start,slot=1 WHERE id=? AND slot=0 AND start>?').bind(middle,middle,r.id,now));
- });await d.batch(q);
+ q.push(d.prepare('UPDATE challenges SET end=?,duration=?-start,slot=1 WHERE id=? AND slot=0 AND start>?').bind(morningEnd,morningEnd,r.id,now));
+ });await d.batch(q);await upgradeHuntWindows(now);
 }
 export async function refreshFutureWords(){
  await upgradeFutureDaily();const now=Date.now(),lease=String(now+120000);
@@ -76,4 +76,12 @@ export async function refreshFutureWords(){
  const descriptions=await describeWords(words);const cutoff=Date.now(),d=db();const results=await d.batch(rows.map((r:any,i:number)=>d.prepare('UPDATE challenges SET title=?,details=? WHERE id=? AND title=? AND start>? AND NOT EXISTS (SELECT 1 FROM starts WHERE challenge=?) AND season IN (SELECT id FROM seasons WHERE end IS NULL)').bind(words[i],descriptions[words[i]],r.id,r.title,cutoff,r.id)));
  return {ok:true,count:results.reduce((n:number,r:any)=>n+(r.meta.changes||0),0)};
  }finally{await run("UPDATE settings SET value='0' WHERE key='ai_album_lock' AND value=?",lease)}
+}
+
+// Normalize today's and future standard slots, without changing words, attempts or photos.
+// Earlier calendar days and manually closed albums remain untouched.
+export async function upgradeHuntWindows(now=Date.now()){
+ const today=osloDay(now),rows=await all('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE c.daily=1 AND c.slot IN (1,2) AND c.day>=? AND s.end IS NULL',today),d=db(),q:any[]=[];
+ for(const c of rows){const {start,end}=huntWindow(c.day,c.slot);if(c.start===start&&c.end===end)continue;if(c.slot===1&&c.end!==osloTime(c.day,15)&&c.end!==end)continue;if(c.slot===2&&c.start!==osloTime(c.day,15)&&c.start!==start)continue;q.push(d.prepare('UPDATE challenges SET start=?,end=?,duration=? WHERE id=? AND start=? AND end=? AND season IN(SELECT id FROM seasons WHERE end IS NULL)').bind(start,end,end-start,c.id,c.start,c.end));if(c.slot===1&&end>c.end)q.push(d.prepare('UPDATE captures SET expires=MAX(expires,?) WHERE challenge=? AND used=0').bind(end+86400000,c.id));}
+ if(q.length)await d.batch(q);
 }

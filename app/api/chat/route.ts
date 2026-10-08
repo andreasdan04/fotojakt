@@ -20,12 +20,13 @@ export const GET=wrap(async(req:Request)=>{
  }
  await hydrateChatMedia(rows);
  const readers=await chatReaders(room,m.id),mine=readers.find((r:any)=>r.id===m.id);
- for(const row of rows){row.unread=row.user!==m.id&&!hasRead(mine,row);row.readBy=readers.filter((r:any)=>r.id!==row.user&&r.joined<=row.created&&hasRead(r,row)).map((r:any)=>({id:r.id,name:r.name}));}
+ for(const row of rows){row.unread=row.user!==m.id&&!hasRead(mine,row);if(room!=='public'||canUpdate)row.readBy=readers.filter((r:any)=>r.id!==row.user&&r.joined<=row.created&&hasRead(r,row)).map((r:any)=>({id:r.id,name:r.name}));}
  const publicRoom=await publicChatRoom(m.id);
  return json({room,name:access.name,groups:groups.filter((g:any)=>g.kind!=='friend'),friends:groups.filter((g:any)=>g.kind==='friend'),publicRoom,publicActivity:publicRoom.lastActivity,canModerate,canUpdate,messages:rows,target:target?.id||null,hasMore,nextBefore:rows.length?rows[0].created+':'+rows[0].id:null});
 });
 export const POST=wrap(async(req:Request)=>{
  origin(req);const m=await member(),b:any=await req.json(),room=str(b.room,100),access=await roomAccess(room,m.id);
+ if(b.action==='report'){const id=str(b.id,100);if(!await one('SELECT id FROM chat_messages WHERE id=? AND room=?',id,room))fail('Meldingen finnes ikke.',404);await run("INSERT INTO chat_reviews(message,status,reason,created) VALUES(?,'manual','Rapportert av en deltaker.',?) ON CONFLICT(message) DO UPDATE SET status='manual',reason='Rapportert av en deltaker.',updated=excluded.created",id,Date.now());await run('INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)','chat-report:'+id,JSON.stringify({user:m.id,created:Date.now()}));return json({ok:true});}
  if(b.action==='preferences'){
   if(room==='public'||room.startsWith('dm:')||typeof b.enabled!=='boolean')fail('Velg en gyldig gruppeinnstilling.');
   await run('UPDATE group_members SET chat_notifications=? WHERE group_id=? AND user=?',b.enabled?1:0,room,m.id);return json({ok:true});

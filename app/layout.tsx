@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="nb" suppressHydrationWarning>
-      <body className="antialiased" data-pink-ribbon={String(isPinkRibbonActive())} suppressHydrationWarning><ColorTheme><SeasonalTheme/>{children}<footer className="site-footer"><span>© {new Date().getFullYear()} Foto Jakt</span><a href="https://foto-jakt.no">foto-jakt.no</a></footer></ColorTheme></body>
+      <body className="antialiased" data-pink-ribbon={String(isPinkRibbonActive())} suppressHydrationWarning><ColorTheme><SeasonalTheme/>{children}<footer className="site-footer"><span>© {new Date().getFullYear()} Foto Jakt</span><a href="/personvern">Personvern</a><a href="https://foto-jakt.no">foto-jakt.no</a></footer></ColorTheme></body>
     </html>
   );
 }

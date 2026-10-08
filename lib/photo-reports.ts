@@ -27,7 +27,7 @@ export async function visibleReports(viewer:string,isAdmin:boolean,now:number,se
  EXISTS(SELECT 1 FROM photo_voters e WHERE e.submission=r.submission AND e.user=?) eligible
  FROM photo_reports r JOIN submissions s ON s.id=r.submission JOIN challenges c ON c.id=s.challenge
  WHERE ${audienceSql(viewer)} AND (? IS NULL OR c.season=?) AND (? IS NULL OR s.user=?)
- AND (c.end<=? OR EXISTS(SELECT 1 FROM submissions own WHERE own.challenge=c.id AND own.user=?) OR ?=1)`,viewer,viewer,season,season,profile,profile,now,viewer,isAdmin?1:0);
+ AND (c.end<=? OR EXISTS(SELECT 1 FROM submissions own WHERE own.challenge=c.id AND own.user=?) )`,viewer,viewer,season,season,profile,profile,now,viewer);
 }
 export async function reportAction(b:any,user:string,now:number){
  const id=str(b.id,100);await requirePhotoAudience(id,user);

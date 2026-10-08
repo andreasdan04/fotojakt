@@ -1,0 +1,5 @@
+import {admin,siteOwner,origin,one,run,wrap,json,fail} from '@/lib/server';
+import {chatWords,cleanChatWords} from '@/lib/chat-word-filter';
+export const dynamic='force-dynamic';
+export const GET=wrap(async(req:Request)=>{const u=await admin(req),owner=await one("SELECT value FROM settings WHERE key='owner'"),row=await one("SELECT value FROM settings WHERE key='chat-word-filter'");return json({words:await chatWords(),canEdit:owner?.value===u.userId,version:row?.value||''})});
+export const PUT=wrap(async(req:Request)=>{origin(req);await siteOwner(req);const b:any=await req.json(),words=cleanChatWords(b.words),old=await one("SELECT value FROM settings WHERE key='chat-word-filter'");if((old?.value||'')!==b.expected)fail('Ordlisten er endret. Oppdater før du lagrer.',409);const value=JSON.stringify({words,updated:Date.now()}),r=await run("INSERT INTO settings(key,value) VALUES('chat-word-filter',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value=?",value,b.expected);if(!r.meta.changes)fail('Ordlisten er endret. Oppdater før du lagrer.',409);return json({ok:true,words,version:value})});

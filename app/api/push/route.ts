@@ -1,3 +1,4 @@
+import {removePushDevices} from '@/lib/push-cleanup';
 import {socialPreferences,notificationsEnabled} from '@/lib/social-push';
 import {env} from 'cloudflare:workers';
 import {identity,origin,json,wrap,fail,one,run} from '@/lib/server';
@@ -13,11 +14,12 @@ export const POST=wrap(async(req:Request)=>{origin(req);const m=await pushMember
    await run("UPDATE push_deliveries SET status='skipped' WHERE status='pending' AND subscription IN(SELECT id FROM push_subscriptions WHERE user=?)",m.id);
    await run("UPDATE social_push SET status='skipped' WHERE status='pending' AND subscription IN(SELECT id FROM push_subscriptions WHERE user=?)",m.id);
   }
+  if(!b.enabled){await removePushDevices(m.id);}
   if(!b.enabled)await run("UPDATE invitation_push SET status='skipped' WHERE status='pending' AND recipient=?",m.id);
   return json({ok:true,notificationsEnabled:b.enabled});
  }
  if(b.action==='preferences'){if(!['comments','reactions','replies','friends','groups'].includes(b.kind)||typeof b.enabled!=='boolean')fail('Ugyldig varslingsvalg.');await run(`INSERT INTO notification_preferences(user,${b.kind}) VALUES (?,?) ON CONFLICT(user) DO UPDATE SET ${b.kind}=excluded.${b.kind}`,m.id,b.enabled?1:0);if(!b.enabled)await run("UPDATE social_push SET status='skipped' WHERE status='pending' AND kind=? AND subscription IN (SELECT id FROM push_subscriptions WHERE user=?)",b.kind==='replies'?'reply':b.kind==='comments'?'comment':'reaction',m.id);if(!b.enabled&&['friends','groups'].includes(b.kind))await run("UPDATE invitation_push SET status='skipped' WHERE status='pending' AND recipient=? AND kind=?",m.id,b.kind==='friends'?'friend':'group');return json({ok:true,preferences:await socialPreferences(m.id)})}
- if(b.action==='unsubscribe'){await run('DELETE FROM push_subscriptions WHERE user=? AND endpoint=?',m.id,String(b.endpoint||''));return json({ok:true})}
+ if(b.action==='unsubscribe'){await removePushDevices(m.id,String(b.endpoint||''));return json({ok:true})}
  if(b.action==='subscribe-native'){
   const token=validateExpoToken(b.token),now=Date.now();
   let old=await one('SELECT * FROM push_subscriptions WHERE endpoint=?',token);
@@ -27,7 +29,7 @@ export const POST=wrap(async(req:Request)=>{origin(req);const m=await pushMember
   const id=old?.id||crypto.randomUUID();await run("INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated,provider) VALUES (?,?,?,'','',?,?,'expo') ON CONFLICT(endpoint) DO UPDATE SET updated=excluded.updated",id,m.id,token,old?.created||now,now);
   return json({ok:true,id,...await notificationStatus()});
  }
- if(!pushConfigured())fail('Varsling er ikke klar ennå. Prøv igjen om litt.',503);
+ if(b.action==='subscribe'&&!pushConfigured())fail('Varsling er ikke klar ennå. Prøv igjen om litt.',503);
  if(b.action==='subscribe'){
   if(b.installed!==true)fail('Åpne appen fra hjemskjermen for å aktivere varsler.');
   const s=validateSubscription(b.subscription),now=Date.now();

@@ -1,3 +1,4 @@
+import {afternoonLocked} from './hunt-times';
 import {ensureGames,processBonuses} from './game';
 import {processChatReviews} from './chat-moderation';
 import {dispatchInvitations} from './invitation-push';
@@ -34,7 +35,10 @@ const SOCIAL_KINDS=['chat','invitation','social'];
 async function sendExpoPush(sub:any,payload:any,ttl:number){
  const headers:Record<string,string>={'Content-Type':'application/json',Accept:'application/json'};
  if((env as any).EXPO_ACCESS_TOKEN)headers.Authorization=`Bearer ${(env as any).EXPO_ACCESS_TOKEN}`;
- const message={to:validateExpoToken(sub.endpoint),title:payload.title,body:payload.body,data:{url:payload.url,kind:payload.kind,expires:payload.expires},ttl:Math.max(0,Math.floor(ttl)),priority:'high',sound:'default',collapseId:payload.tag,tag:payload.tag,channelId:SOCIAL_KINDS.includes(payload.kind)?'social':'hunts'};
+ // APNs rejects collapse identifiers longer than 64 bytes, including social queue IDs.
+ const tag=typeof payload.tag==='string'?payload.tag:undefined;
+ const collapseId=tag&&new TextEncoder().encode(tag).length>64?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(tag))),v=>v.toString(16).padStart(2,'0')).join(''):tag;
+ const message={to:validateExpoToken(sub.endpoint),title:payload.title,body:payload.body,data:{url:payload.url,kind:payload.kind,expires:payload.expires},ttl:Math.max(0,Math.floor(ttl)),priority:'high',sound:'default',collapseId,tag:payload.tag,channelId:SOCIAL_KINDS.includes(payload.kind)?'social':'hunts'};
  const res=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers,body:JSON.stringify(message),redirect:'manual',signal:AbortSignal.timeout(8000)});
  if(!res.ok){await res.body?.cancel();return res.status}
  // Map the push ticket onto the Web Push statuses every dispatcher already handles: 410 removes the device.
@@ -43,6 +47,8 @@ async function sendExpoPush(sub:any,payload:any,ttl:number){
  return ticket?.details?.error==='DeviceNotRegistered'?410:ticket?.details?.error==='MessageRateExceeded'?429:502;
 }
 export async function sendPush(sub:any,payload:any,ttl=300){
+ if(!await notificationsEnabled(sub.user)||!await one('SELECT id FROM push_subscriptions WHERE id=? AND user=?',sub.id,sub.user))return 410;
+ const preview=await one('SELECT value FROM settings WHERE key=?','privacy:'+sub.user);if(!preview||JSON.parse(preview.value).pushPreview!==true){payload={...payload,title:'Foto Jakt',body:SOCIAL_KINDS.includes(payload.kind)?'Du har en ny beskjed i Foto Jakt. Åpne appen for å se den.':'En fotojakt venter på deg. Åpne Foto Jakt.',tag:payload.tag};}
  if(sub.provider==='expo')return sendExpoPush(sub,payload,ttl);
  if(!pushConfigured())throw Error('Push is not configured');
  validateSubscription({endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth}});
@@ -58,11 +64,11 @@ export async function dispatchPush(){
  if(!lock.meta.changes)return {busy:true,sent:0};
  try{
   await ensureGames(now);await processBonuses(now);await settleDifficultyPolls(now);await upgradeFutureDaily(now);await applyApprovedWords(now);await ensureWordDescriptions(now);await cleanDeletedPhotos();await settleReports();
-  if(!pushConfigured())throw Error('Push keys are missing');
+  if(!pushConfigured()&&!await one("SELECT id FROM push_subscriptions WHERE provider='expo' LIMIT 1"))throw Error('Push keys are missing');
   await run('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value','push_scheduler_seen',String(now));
   const challenges=await all('SELECT c.* FROM challenges c JOIN seasons s ON s.id=c.season WHERE s.end IS NULL AND c.start IS NOT NULL AND c.end>?',now);
   const subs=await all("SELECT p.*,m.approved FROM push_subscriptions p JOIN members m ON m.id=p.user WHERE m.status=? AND NOT EXISTS(SELECT 1 FROM settings off WHERE off.key='push_disabled:'||p.user AND off.value='1')",'approved');
-  const completed=new Set((await all('SELECT s.challenge,s.user FROM submissions s JOIN challenges c ON c.id=s.challenge WHERE c.end>?',now)).map((s:any)=>s.challenge+':'+s.user));
+  const completions=await all('SELECT s.challenge,s.user FROM submissions s JOIN challenges c ON c.id=s.challenge WHERE c.end>?',now);const completed=new Set(completions.map((s:any)=>s.challenge+':'+s.user));
   const seasons=await all('SELECT * FROM seasons ORDER BY start DESC');
   const announcements=new Map<string,any>();
   for(const season of seasons.filter((s:any)=>!s.end)){
@@ -76,7 +82,7 @@ export async function dispatchPush(){
   let jobs:any[]=[];
   for(const c of challenges){const announcement=announcements.get(c.id);const events=eventsForChallenge(c,now).filter(e=>!announcement||e.kind!=='start');if(announcement)events.push(announcement);for(const event of events){for(const sub of subs){
    // No backlog on a newly registered device, and no challenges before membership.
-   if(sub.created>event.due||sub.approved>(c.daily?event.due:event.start)||completed.has(c.id+':'+sub.user))continue;
+   if(sub.created>event.due||sub.approved>(c.daily?event.due:event.start)||completed.has(c.id+':'+sub.user)||afternoonLocked(c,challenges,completions,sub.user,now))continue;
    const id=`${sub.id}:${event.key}`;const previous=await one('SELECT status,attempts,next_attempt FROM push_deliveries WHERE id=?',id);
    if(previous&&(previous.status!=='pending'||previous.attempts>=5||previous.next_attempt>now))continue;
    jobs.push({sub,event,id});
@@ -97,7 +103,7 @@ export async function dispatchPush(){
     if(status===404||status===410){await run('DELETE FROM push_subscriptions WHERE id=?',sub.id);await run('UPDATE push_deliveries SET status=?,last_status=? WHERE id=?','expired',status,id);return;}
     if(status>=200&&status<300){await run('UPDATE push_deliveries SET status=?,sent=?,last_status=?,attempts=attempts+1 WHERE id=?','sent',Date.now(),status,id);sent++;}
     else{await run('UPDATE push_deliveries SET attempts=attempts+1,last_status=?,next_attempt=? WHERE id=?',status,Date.now()+60000,id);failed++;}
-   }catch(error:any){console.error('Push delivery failed:',String(error.message).replace(/https?:\/\/\S+/g,'[endpoint]'));await run('UPDATE push_deliveries SET attempts=attempts+1,next_attempt=? WHERE id=?',Date.now()+60000,id);failed++;}
+   }catch(error:any){console.error('Push delivery failed; retry scheduled');await run('UPDATE push_deliveries SET attempts=attempts+1,next_attempt=? WHERE id=?',Date.now()+60000,id);failed++;}
   }))}
   await run('DELETE FROM push_deliveries WHERE created<? AND challenge IN (SELECT id FROM challenges WHERE end<?)',now-30*86400000,now);
   const invitations=await dispatchInvitations(sendPush),chat=await dispatchChat(sendPush),social=await dispatchSocial(sendPush),changes=await dispatchWordChanges(sendPush);await processChatReviews(now);return {sent:sent+social.sent+changes.sent+chat.sent+invitations.sent,failed:failed+social.failed+changes.failed+chat.failed+invitations.failed,remaining:Math.max(0,selected.length-20),nextCheckMs:15000};

@@ -7,6 +7,7 @@ try{
  for(const user of ['owner','other']){await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES(?,?,?,\'approved\',1,1,0)').bind(user,user,'').run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES(?,?,?)').bind(crypto.createHash('sha256').update(user).digest('hex'),user,now+86400000).run()}
  await db.prepare("INSERT INTO seasons(id,name,start) VALUES('s','Test',1)").run();
  // Push opt-out never gates opening a word, camera preparation or delivery.
+ for(const user of ['owner','other']){const r=await mf.dispatchFetch('https://test.invalid/api/rules',{method:'POST',headers:{cookie:'hunt_login='+user,'content-type':'application/json'},body:JSON.stringify({rules_version:'2026-10-07.1',accepted:true})});assert.equal(r.status,200)}
  assert.equal((await db.prepare('SELECT COUNT(*) n FROM push_subscriptions').first()).n,0,'ordinary participants have never activated push');
  await db.prepare("INSERT INTO settings(key,value) VALUES('push_disabled:owner','1')").run();
  await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily) VALUES('optional-push','s','Testmotiv',?,?,3600000,1,1)").bind(now-1000,now+3600000).run();
@@ -17,7 +18,7 @@ try{
  assert.equal((await action({action:'start-daily',id:'optional-push'})).data.started,opened.started,'reopening retains the original clock without push');
  const camera=await action({action:'camera',id:'optional-push'});assert.equal(camera.status,200,'camera can be prepared with push disabled');
  assert.equal((await action({action:'taken',token:camera.data.token})).status,200,'shutter time can be recorded with push disabled');
- const bytes=new Uint8Array(120);bytes.set([255,216,255]);
+ const bytes=new Uint8Array(await readFile('tests/fixtures/metadata.jpg'));
  async function seed(id,end=now-1000,expires=now+80000000){await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily) VALUES(?,'s','kopp',?,?,3600000,1,1)").bind(id,started,end).run();await db.prepare("INSERT INTO starts(user,challenge,started) VALUES('owner',?,?)").bind(id,started).run();await db.prepare("INSERT INTO captures(token,user,challenge,issued,expires) VALUES(?,'owner',?,?,?)").bind(id,id,started+1000,expires).run()}
  async function upload(id,taken,user='owner'){const form=new FormData();form.set('challenge',id);form.set('token',id);form.set('taken',String(taken));form.set('photo',new Blob([bytes],{type:'image/jpeg'}),'capture.jpg');const encoded=new Response(form);const r=await mf.dispatchFetch('https://test.invalid/api/hunt',{method:'POST',headers:{cookie:'hunt_login='+user,'content-type':encoded.headers.get('content-type')},body:new Uint8Array(await encoded.arrayBuffer())});return {status:r.status,data:await r.json()}}
  await seed('offline');let r=await upload('offline',started+23583);assert.equal(r.status,200,JSON.stringify(r));assert.equal(r.data.elapsed,23583,'network delay never changes shutter time');

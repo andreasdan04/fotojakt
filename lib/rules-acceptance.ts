@@ -1,0 +1,5 @@
+import {one,run,fail} from './server';
+import {RULES_VERSION} from './rules-content';
+export async function rulesStatus(user:string){const row=await one('SELECT accepted_at FROM rules_acceptances WHERE user_id=? AND rules_version=?',user,RULES_VERSION);return {version:RULES_VERSION,accepted:!!row,acceptedAt:row?.accepted_at??null}}
+export async function acceptRules(user:string,b:any){if(b.rules_version!==RULES_VERSION)fail('Reglene er oppdatert. Les og godta gjeldende versjon.',409);if(b.accepted!==true)fail('Kryss av for at du har lest og forstått reglene.');await run('INSERT OR IGNORE INTO rules_acceptances(user_id,rules_version,accepted_at) VALUES(?,?,?)',user,RULES_VERSION,Date.now());return {ok:true,...await rulesStatus(user)}}
+export async function requireRulesForNewStart(user:string,challenge:string){if(await one('SELECT started FROM starts WHERE user=? AND challenge=?',user,challenge))return;if(!(await rulesStatus(user)).accepted)fail('Les og godta reglene før du starter jakten.',409)}

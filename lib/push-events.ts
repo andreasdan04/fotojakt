@@ -1,19 +1,20 @@
+import {osloTime,osloDay} from './hunt-times';
 import {lightningEvents} from './game-rules';
 export const dailyReminders=[
- {hour:6,kind:'start',message:'Formiddagens ord er klart. Start når det passer – lever før kl. 15.00.'},
- {hour:10,kind:'daily-10',message:'Lyst på en fotojakt? Formiddagens oppgave er åpen til kl. 15.00.'},
- {hour:14,kind:'daily-14',message:'Én time igjen av formiddagsjakten. Lever før kl. 15.00.'},
- {hour:15,kind:'start-afternoon',message:'Ettermiddagens ord er klart. Du har frem til kl. 00.00.'},
- {hour:20,kind:'daily-20',message:'Ettermiddagsjakten er fortsatt åpen. Lever før kl. 00.00.'},
- {hour:22,kind:'daily-22',message:'To timer igjen av ettermiddagsjakten. Siste påminnelse i dag.'}
+ {hour:7,slot:1,kind:'start',message:'Formiddagens ord er klart. Start når det passer – lever før kl. 17.00.'},
+ {hour:10,slot:1,kind:'daily-10',message:'Lyst på en fotojakt? Formiddagens oppgave er åpen til kl. 17.00.'},
+ {hour:16,slot:1,kind:'daily-16',message:'Én time igjen av formiddagsjakten. Lever før kl. 17.00.'},
+ {hour:14,slot:2,kind:'start-afternoon',message:'Ettermiddagsjakten er klar når formiddagsbildet er levert, eller fra kl. 17.00. Frist kl. 00.00.'},
+ {hour:17,slot:2,kind:'daily-17',message:'Ettermiddagsjakten er tilgjengelig for alle. Du har frem til kl. 00.00.'},
+ {hour:20,slot:2,kind:'daily-20',message:'Ettermiddagsjakten er fortsatt åpen. Lever før kl. 00.00.'},
+ {hour:22,slot:2,kind:'daily-22',message:'To timer igjen av ettermiddagsjakten. Siste påminnelse i dag.'}
 ] as const;
 // Pure event planning; times are server timestamps, never client-provided.
 export function eventsForChallenge(c:any,now:number){
  if(!c.start||c.end<=now)return [];
  if(c.id.startsWith('lightning:'))return lightningEvents(c,now);
- // Daily starts are stored at 06:00 Europe/Oslo. All reminders are later on
- // that same local day, after the DST transition (which occurs before 06:00).
- if(c.daily)return dailyReminders.map(r=>{const startHour=c.slot===2?15:6;const due=c.start+(r.hour-startHour)*3600000;return {kind:r.kind,due,expires:Math.min(c.end,due+900000),title:'📸 Foto Jakt',body:r.message,key:`${c.id}:${c.start}:${r.kind}`,challenge:c.id,start:c.start}}).filter(e=>e.due>=c.start&&e.due>=c.created&&e.due<c.end&&e.due<=now&&e.expires>now);
+ // Resolve every reminder from its Oslo calendar day, independently of slot overlap.
+ if(c.daily)return dailyReminders.filter(r=>!c.slot||r.slot===c.slot).map(r=>{const due=osloTime(c.day||osloDay(c.start),r.hour);return {kind:r.kind,due,expires:Math.min(c.end,due+900000),title:'📸 Foto Jakt',body:r.message,key:`${c.id}:${c.day||osloDay(c.start)}:${r.kind}`,challenge:c.id,start:c.start}}).filter(e=>e.due>=c.start&&e.due>=c.created&&e.due<c.end&&e.due<=now&&e.expires>now);
 
  const clock=new Date(c.start).toLocaleString('nb-NO',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Oslo'});
  const events=[
@@ -32,7 +33,7 @@ export function seasonAnnouncementTime(start:number){
  const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
  const local=Date.parse(p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute+':'+p.second+'Z');
  const offset=local-Math.floor(earliest/1000)*1000;
- let target=Date.parse(p.year+'-'+p.month+'-'+p.day+'T06:00:00Z');
+ let target=Date.parse(p.year+'-'+p.month+'-'+p.day+'T07:00:00Z');
  if(target<local)target+=86400000;
  // Recalculate the offset at the target date, including DST changes overnight.
  let value=target-offset;

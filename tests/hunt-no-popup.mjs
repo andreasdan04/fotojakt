@@ -1,0 +1,10 @@
+import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const source=await readFile('app/hunt.tsx','utf8');
+assert(!source.includes('setAlert'), 'refresh must not schedule the new-hunt popup');
+assert(!source.includes('alert-screen'), 'new-hunt overlay must not render');
+assert(!source.includes('Til dagens ord'), 'broken popup button must be removed');
+assert(source.includes('offset.current=j.now-Date.now()'), 'server clock alignment remains');
+assert(source.includes('<RulesStart challenge={c.id}'), 'manual start and rule confirmation remain');
+assert(source.includes('setData(j)'), 'new hunts still refresh in the app');
+console.log('PASS: no new-word popup; clock alignment, hunt refresh and manual rules/start retained.');

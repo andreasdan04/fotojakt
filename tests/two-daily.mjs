@@ -8,14 +8,16 @@ const db=await mf.getD1Database('DB');for(const migration of(await readdir('driz
 const monday=new Date(new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Oslo'}).format(Date.now())+'T12:00:00Z');monday.setUTCDate(monday.getUTCDate()-(monday.getUTCDay()+6)%7);
 for(let i=0;i<5;i++){const week=new Date(monday.getTime()+i*7*86400000).toISOString().slice(0,10);await db.prepare('INSERT INTO game_hunts(challenge,week,lightning) VALUES (?,?,1)').bind('test-lightning:'+week,week).run();}
 const now=Date.now(),headers={};for(const user of ['admin','early','late','pending']){await db.prepare('INSERT INTO members(id,name,email,status,joined,approved,admin) VALUES (?,?,?,?,?,?,?)').bind(user,user,'',user==='pending'?'pending':'approved',now-10000,now-5000,user==='admin'?1:0).run();await db.prepare('INSERT INTO login_sessions(token,user,expires) VALUES (?,?,?)').bind(crypto.createHash('sha256').update(user).digest('hex'),user,now+86400000).run();headers[user]={cookie:'hunt_login='+user+(user==='admin'?'; hunt_admin=admin':''),'content-type':'application/json'};await db.prepare('INSERT INTO push_subscriptions(id,user,endpoint,p256dh,auth,created,updated) VALUES (?,?,?,?,?,?,?)').bind(user,user,'https://fcm.googleapis.com/'+user,'k','a',1,1).run();}
-await db.prepare('INSERT INTO sessions(token,user,expires) VALUES (?,?,?)').bind('admin','admin',now+86400000).run();
+await db.prepare('INSERT INTO sessions(token,user,expires) VALUES (?,?,?)').bind(crypto.createHash('sha256').update('admin').digest('hex'),'admin',now+86400000).run();
+await db.prepare("INSERT INTO settings(key,value) VALUES('owner','admin'),('admin-agreement:admin',?)").bind(JSON.stringify({version:'2026-10-07.1',accepted:now})).run();
+await db.prepare("INSERT INTO rules_acceptances(user_id,rules_version,accepted_at) SELECT id,'2026-10-07.1',1 FROM members").run();
 async function req(user,body,url='/api/hunt'){const h={...headers[user]};let data;if(body instanceof FormData){const encoded=new Response(body);h['content-type']=encoded.headers.get('content-type');data=new Uint8Array(await encoded.arrayBuffer())}else data=body?JSON.stringify(body):undefined;const r=await mf.dispatchFetch('https://test.invalid'+url,{method:body?'POST':'GET',headers:h,...(data?{body:data}:{})});return {status:r.status,data:await r.json()}}
 
 const tomorrow=new Date(now+86400000).toISOString().slice(0,10),last=new Date(now+31*86400000).toISOString().slice(0,10);
 let r=await req('admin',{action:'album',name:'Two per day',first:tomorrow,last});assert.equal(r.status,200,JSON.stringify(r));const album=r.data.id;
 let rows=(await db.prepare('SELECT * FROM challenges WHERE season=? ORDER BY start').bind(album).all()).results;
 assert.equal(rows.length,62);const hour=n=>new Intl.DateTimeFormat('en',{timeZone:'Europe/Oslo',hour:'2-digit',hourCycle:'h23'}).format(n);
-for(let i=0;i<62;i+=2){assert.equal(rows[i].day,rows[i+1].day);assert.equal(rows[i].slot,1);assert.equal(rows[i+1].slot,2);assert.equal(hour(rows[i].start),'06');assert.equal(hour(rows[i].end),'15');assert.equal(rows[i].end,rows[i+1].start);assert.equal(hour(rows[i+1].end),'00');assert.notEqual(rows[i].title,rows[i+1].title);}
+for(let i=0;i<62;i+=2){assert.equal(rows[i].day,rows[i+1].day);assert.equal(rows[i].slot,1);assert.equal(rows[i+1].slot,2);assert.equal(hour(rows[i].start),'06');assert.equal(hour(rows[i].end),'17');assert.equal(hour(rows[i+1].start),'14');assert.equal(rows[i].end-rows[i+1].start,3*3600000);assert.equal(hour(rows[i+1].end),'00');assert.notEqual(rows[i].title,rows[i+1].title);}
 // Previously scheduled 07:00 mornings move once to 06:00, preserving words and deadlines.
 const original=rows[2];
 await db.prepare('UPDATE challenges SET start=start+3600000,duration=duration-3600000 WHERE id=?').bind(original.id).run();
@@ -40,7 +42,7 @@ await db.prepare("INSERT INTO seasons(id,name,start,daily) VALUES('old','Old',?,
 await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily,day) VALUES('active','old','kopp',?,?,50000,?,1,'2026-01-01')").bind(now-10000,now+100000,now-10000).run();
 await db.prepare("INSERT INTO challenges(id,season,title,start,end,duration,created,daily,day) VALUES('future','old','sko',?,?,61200000,?,1,?)").bind(rows[2].start,rows[3].end,now,rows[2].day).run();
 await req('early');await req('early');
-const future=(await db.prepare("SELECT * FROM challenges WHERE day=? ORDER BY start").bind(rows[2].day).all()).results;assert.equal(future.length,2);assert.equal(future[0].slot,1);assert.equal(future[1].slot,2);assert.equal(future[0].end,future[1].start);
+const future=(await db.prepare("SELECT * FROM challenges WHERE day=? ORDER BY start").bind(rows[2].day).all()).results;assert.equal(future.length,2);assert.equal(future[0].slot,1);assert.equal(future[1].slot,2);assert.equal(future[0].end-future[1].start,3*3600000);
 assert.equal((await db.prepare("SELECT end FROM challenges WHERE id='active'").first()).end,now+100000);
 console.log('PASS: 31 days / 62 slots, boundaries, hidden future words, admin-only regeneration, active preservation, all-future replacement, AI failure atomicity and idempotent legacy upgrade.');
 }finally{await mf.dispose()}
