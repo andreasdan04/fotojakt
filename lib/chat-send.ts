@@ -3,6 +3,7 @@ import {requirePhotoAudience,audienceSql} from './groups';
 import {queueChat} from './chat-notifications';
 import {recordUsage} from './usage';
 import {chatWords,findChatWords} from './chat-word-filter';
+import {STAFF_CHAT_ROOM,staffChatGuard} from './staff-chat';
 export async function sendChat(b:any,m:any,room:string){
  const id=typeof b.id==='string'?b.id:'';if(!/^[a-f0-9-]{36}$/i.test(id))fail('Ugyldig melding.');
  const photo=b.photo==null?null:str(b.photo,100),ids=b.attachments==null?[]:b.attachments;
@@ -20,7 +21,10 @@ export async function sendChat(b:any,m:any,room:string){
  let extra=updateTitle?' AND EXISTS(SELECT 1 FROM members WHERE id=? AND admin=1)':'',args:any[]=updateTitle?[m.id]:[];
  if(ids.length){extra+=` AND (SELECT COUNT(*) FROM chat_attachments WHERE id IN (${ids.map(()=>'?').join(',')}) AND user=? AND room=? AND message IS NULL)=?`;args.push(...ids,m.id,room,ids.length);}
  if(photo){extra+=` AND EXISTS(SELECT 1 FROM submissions s JOIN challenges c ON c.id=s.challenge JOIN members a ON a.id=s.user WHERE s.id=? AND c.end<=? AND a.status='approved' AND ${audienceSql(m.id)})`;extra+=' AND EXISTS(SELECT 1 FROM submissions WHERE id=? AND user=?)';args.push(photo,now,photo,m.id);}
- const d=db(),statements=[d.prepare(`INSERT OR IGNORE INTO chat_messages(id,room,user,body,created,reply_to,shared_photo,update_title,update_icon) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND status='approved') AND (?='public' OR EXISTS(SELECT 1 FROM groups g JOIN group_members gm ON gm.group_id=g.id WHERE g.id=? AND gm.user=?) OR EXISTS(SELECT 1 FROM friendships f JOIN members a ON a.id=f.a JOIN members z ON z.id=f.b WHERE 'dm:'||f.a||':'||f.b=? AND (f.a=? OR f.b=?) AND f.status='accepted' AND a.status='approved' AND z.status='approved'))${extra}`).bind(id,room,m.id,body,now,replyTo,photo,updateTitle,updateIcon,m.id,room,room,m.id,room,m.id,m.id,...args)];
+ const teamGuard=staffChatGuard(m.id);
+ const teamAccess=room===STAFF_CHAT_ROOM?teamGuard.sql:`(?='public' OR EXISTS(SELECT 1 FROM groups g JOIN group_members gm ON gm.group_id=g.id WHERE g.id=? AND gm.user=?) OR EXISTS(SELECT 1 FROM friendships f JOIN members a ON a.id=f.a JOIN members z ON z.id=f.b WHERE 'dm:'||f.a||':'||f.b=? AND (f.a=? OR f.b=?) AND f.status='accepted' AND a.status='approved' AND z.status='approved'))`;
+ const teamArgs=room===STAFF_CHAT_ROOM?teamGuard.args:[room,room,m.id,room,m.id,m.id];
+ const d=db(),statements=[d.prepare(`INSERT OR IGNORE INTO chat_messages(id,room,user,body,created,reply_to,shared_photo,update_title,update_icon) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM members WHERE id=? AND status='approved') AND ${teamAccess}${extra}`).bind(id,room,m.id,body,now,replyTo,photo,updateTitle,updateIcon,m.id,...teamArgs,...args)];
  if(ids.length)statements.push(d.prepare(`UPDATE chat_attachments SET message=? WHERE id IN (${ids.map(()=>'?').join(',')}) AND user=? AND room=? AND message IS NULL AND EXISTS(SELECT 1 FROM chat_messages WHERE id=? AND user=? AND room=?)`).bind(id,...ids,m.id,room,id,m.id,room));
  const hits=room==='public'?findChatWords(body+' '+(updateTitle||''),await chatWords()):[];
  if(hits.length)statements.push(d.prepare("INSERT OR IGNORE INTO chat_reviews(message,status,reason,categories,created,updated) SELECT id,'flagged',?,?,created,? FROM chat_messages WHERE id=? AND user=? AND room=? AND room='public'").bind('Treff i lokal ordliste: '+hits.join(', ')+'. Vurder sammenhengen manuelt.',JSON.stringify(['word_filter']),now,id,m.id,room));

@@ -3,6 +3,7 @@ import {chatRooms,queueChat,publicChatRoom,chatReaders,hasRead} from '@/lib/chat
 import {requireChatRoom as roomAccess} from '@/lib/chat-access';
 import {hydrateChatMedia,chatCleanupStatements} from '@/lib/chat-media';
 import {sendChat} from '@/lib/chat-send';
+import {STAFF_CHAT_ROOM,staffChatGuard} from '@/lib/staff-chat';
 export const dynamic='force-dynamic';
 export const GET=wrap(async(req:Request)=>{
  const m=await member(),q=new URL(req.url).searchParams;
@@ -28,12 +29,12 @@ export const POST=wrap(async(req:Request)=>{
  origin(req);const m=await member(),b:any=await req.json(),room=str(b.room,100),access=await roomAccess(room,m.id);
  if(b.action==='report'){const id=str(b.id,100);if(!await one('SELECT id FROM chat_messages WHERE id=? AND room=?',id,room))fail('Meldingen finnes ikke.',404);await run("INSERT INTO chat_reviews(message,status,reason,created) VALUES(?,'manual','Rapportert av en deltaker.',?) ON CONFLICT(message) DO UPDATE SET status='manual',reason='Rapportert av en deltaker.',updated=excluded.created",id,Date.now());await run('INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)','chat-report:'+id,JSON.stringify({user:m.id,created:Date.now()}));return json({ok:true});}
  if(b.action==='preferences'){
-  if(room==='public'||room.startsWith('dm:')||typeof b.enabled!=='boolean')fail('Velg en gyldig gruppeinnstilling.');
+  if(room===STAFF_CHAT_ROOM||room==='public'||room.startsWith('dm:')||typeof b.enabled!=='boolean')fail('Velg en gyldig gruppeinnstilling.');
   await run('UPDATE group_members SET chat_notifications=? WHERE group_id=? AND user=?',b.enabled?1:0,room,m.id);return json({ok:true});
  }
  if(b.action==='read'){
   const id=str(b.id,100),message=await one("SELECT x.created,x.id FROM chat_messages x JOIN members a ON a.id=x.user WHERE x.id=? AND x.room=? AND a.status='approved'",id,room);if(!message)fail('Meldingen finnes ikke.',404);
-  if(room==='public'||room.startsWith('dm:')){await run("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE json_extract(value,'$.created')<? OR (json_extract(value,'$.created')=? AND json_extract(value,'$.id')<?)",'dm-read:'+m.id+':'+room,JSON.stringify({created:message.created,id}),message.created,message.created,id);return json({ok:true});}
+  if(room===STAFF_CHAT_ROOM||room==='public'||room.startsWith('dm:')){await run("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE json_extract(value,'$.created')<? OR (json_extract(value,'$.created')=? AND json_extract(value,'$.id')<?)",'dm-read:'+m.id+':'+room,JSON.stringify({created:message.created,id}),message.created,message.created,id);return json({ok:true});}
   await run('UPDATE group_members SET read_created=?,read_id=? WHERE group_id=? AND user=? AND (read_created<? OR (read_created=? AND read_id<?))',message.created,id,room,m.id,message.created,message.created,id);return json({ok:true});
  }
  if(b.action==='delete'){
@@ -45,6 +46,7 @@ export const POST=wrap(async(req:Request)=>{
   const id=str(b.id,100),emoji=b.emoji;if(emoji!==null&&!['❤️','👍','😂','😮','😢','🎉'].includes(emoji))fail('Velg en gyldig reaksjon.');
   const target=await one("SELECT x.id FROM chat_messages x JOIN members m ON m.id=x.user WHERE x.id=? AND x.room=? AND m.status='approved'",id,room);if(!target)fail('Meldingen finnes ikke.',404);
   if(emoji===null)await run('DELETE FROM chat_reactions WHERE message=? AND user=?',id,m.id);
+  else if(room===STAFF_CHAT_ROOM){const guard=staffChatGuard(m.id);await run(`INSERT INTO chat_reactions(message,user,emoji) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM chat_messages WHERE id=? AND room=?) AND ${guard.sql} ON CONFLICT(message,user) DO UPDATE SET emoji=excluded.emoji`,id,m.id,emoji,id,room,...guard.args);}
   else if(room.startsWith('dm:'))await run("INSERT INTO chat_reactions(message,user,emoji) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM chat_messages WHERE id=? AND room=?) AND EXISTS(SELECT 1 FROM friendships f JOIN members a ON a.id=f.a JOIN members b ON b.id=f.b WHERE 'dm:'||f.a||':'||f.b=? AND (f.a=? OR f.b=?) AND f.status='accepted' AND a.status='approved' AND b.status='approved') ON CONFLICT(message,user) DO UPDATE SET emoji=excluded.emoji",id,m.id,emoji,id,room,room,m.id,m.id);
   else await run("INSERT INTO chat_reactions(message,user,emoji) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM chat_messages x JOIN members a ON a.id=x.user WHERE x.id=? AND x.room=? AND a.status='approved') AND EXISTS(SELECT 1 FROM members WHERE id=? AND status='approved') AND (?='public' OR EXISTS(SELECT 1 FROM group_members WHERE group_id=? AND user=?)) ON CONFLICT(message,user) DO UPDATE SET emoji=excluded.emoji",id,m.id,emoji,id,room,m.id,room,room,m.id);
   return json({ok:true});

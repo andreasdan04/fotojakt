@@ -1,6 +1,9 @@
 // One player-facing version per Oslo calendar day. Add same-day work to its summary.
 // Keep the player-facing version number stable during each Oslo calendar day.
 export const releases=[
+ {version:54,date:'2026-10-09',summary:'Privat teamchat for dommere og administrasjon.',changes:[
+  {type:'Nyhet' as const,text:'Dommerteam ligger under Diskusjon og samler dommere, hoveddommere, administratorer og eier i en privat chat. Signert taushetserklæring kreves. Chatten støtter svar, reaksjoner, vedlegg, lesestatus og uleste meldinger i bjellen. Tilgangen fjernes når rollen fjernes.'}
+ ]},
  {version:53,date:'2026-10-08',summary:'Fleksible jakttider, fungerende frivillig statistikk, dommerroller, håndskrevet taushetserklæring og klagebehandling.',changes:[
   {type:'Bugfiks' as const,text:'Signaturfeltet tilpasser seg mobilbredden, og fingerbevegelser tegner underskriften uten å rulle eller zoome siden. Avbrutte streker forkastes, og eldre berøringsnettlesere får støtte.'},
   {type:'Nyhet' as const,text:'Dommere og hoveddommere kan åpne Alle innleveringer i dommerpanelet og markere feil bilder ugyldige med begrunnelse. Egenvurdering er sperret, poeng oppdateres automatisk, og tidligere avgjørelser omgjøres bare av hoveddommer eller eier.'},
