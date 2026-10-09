@@ -13,6 +13,8 @@ export async function runRetention(now=Date.now()){
  const oldMessages=await all('SELECT id FROM chat_messages WHERE created<? ORDER BY created LIMIT 100',now-365*day);
  for(const x of oldMessages)await d.batch([...chatCleanupStatements('id=?',[x.id]),d.prepare('DELETE FROM chat_push WHERE message=?').bind(x.id),d.prepare('DELETE FROM chat_reactions WHERE message=?').bind(x.id),d.prepare('DELETE FROM chat_messages WHERE id=?').bind(x.id),d.prepare('DELETE FROM settings WHERE key=?').bind('chat-report:'+x.id)]);
  await d.batch([
+ d.prepare("DELETE FROM settings WHERE key LIKE 'submission-window:%' AND (json_extract(value,'$.expires')<=? OR NOT EXISTS(SELECT 1 FROM members WHERE id=json_extract(value,'$.user')) OR NOT EXISTS(SELECT 1 FROM challenges WHERE id=json_extract(value,'$.challenge')))").bind(now),
+ d.prepare("DELETE FROM settings WHERE key LIKE 'submission-window-capture:%' AND substr(key,27) NOT IN(SELECT token FROM captures WHERE expires>?)").bind(now),
  d.prepare('DELETE FROM login_sessions WHERE expires<=?').bind(now),d.prepare('DELETE FROM sessions WHERE expires<=?').bind(now),d.prepare('DELETE FROM attempts WHERE until<=?').bind(now),d.prepare('DELETE FROM captures WHERE expires<=?').bind(now),
  d.prepare("DELETE FROM usage_daily WHERE day<? OR NOT EXISTS(SELECT 1 FROM settings WHERE key='privacy:'||usage_daily.user AND json_extract(value,'$.analytics')=1)").bind(new Date(now-90*day).toISOString().slice(0,10)),d.prepare('DELETE FROM usage_activity WHERE last_seen<=?').bind(now-1800000),
  d.prepare('DELETE FROM staff_acceptances WHERE revoked IS NOT NULL AND revoked<?').bind(now-90*day),

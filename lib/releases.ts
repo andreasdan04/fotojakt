@@ -1,7 +1,8 @@
 // One player-facing version per Oslo calendar day. Add same-day work to its summary.
 // Keep the player-facing version number stable during each Oslo calendar day.
 export const releases=[
- {version:54,date:'2026-10-09',summary:'Privat teamchat og tydeligere rekkefølge på overlappende jakter.',changes:[
+ {version:54,date:'2026-10-09',summary:'Privat teamchat, tydelig jaktrekkefølge og ekstra levering ved behov.',changes:[
+  {type:'Nyhet' as const,text:'Eier kan velge en deltaker under Alle innleveringer og åpne den valgte jakten for ny levering i 10 minutter, også etter jaktens slutt. Forrige bilde beholdes til ny levering lykkes. Tiden kan korrigeres med begrunnelse på samme side.'},
   {type:'Bugfiks' as const,text:'Ettermiddagsjakten står alltid over formiddagsjakten når de overlapper, også når et kort er fullført eller låst. Jaktkortene vises rett under hverandre for å unngå at man tar et nytt bilde til feil jakt.'},
   {type:'Nyhet' as const,text:'Dommerteam ligger under Diskusjon og samler dommere, hoveddommere, administratorer og eier i en privat chat. Signert taushetserklæring kreves. Chatten støtter svar, reaksjoner, vedlegg, lesestatus og uleste meldinger i bjellen. Tilgangen fjernes når rollen fjernes.'}
  ]},

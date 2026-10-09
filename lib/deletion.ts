@@ -3,10 +3,10 @@ import {chatCleanupStatements} from './chat-media';
 // Queue blob cleanup in the same transaction as removing its private metadata.
 // The scheduler retries R2 failures; removed photos become inaccessible immediately.
 export async function cleanDeletedPhotos(){const queued=await all("SELECT key,value FROM settings WHERE key GLOB 'deleted-photo:*' LIMIT 100");for(const row of queued){try{await bucket().delete(row.value);await db().prepare('DELETE FROM settings WHERE key=?').bind(row.key).run()}catch{await db().prepare('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('privacy-file-cleanup-failed',String(Date.now())).run();console.error('Photo cleanup will retry')}}}
-export function contentDeletionStatements(kind:'photo'|'own-photo'|'challenge'|'season'|'reset',value:any){
+export function contentDeletionStatements(kind:'photo'|'own-photo'|'challenge'|'season'|'reset',value:any,condition='1=1',preserveCaptures=false){
  const id=str(value,100),d=db(),statements:any[]=[];
  const challenges=kind==='season'?'SELECT id FROM challenges WHERE season=?':'SELECT id FROM challenges WHERE id=?';
- const photos=(kind==='photo'||kind==='own-photo')?'SELECT id FROM submissions WHERE id=?':`SELECT id FROM submissions WHERE challenge IN (${challenges})`;
+ const photos=(kind==='photo'||kind==='own-photo')?`SELECT id FROM submissions WHERE id=? AND (${condition})`:`SELECT id FROM submissions WHERE challenge IN (${challenges})`;
  statements.push(d.prepare(`INSERT OR IGNORE INTO settings(key,value) SELECT 'deleted-photo:'||id,key FROM submissions WHERE id IN (${photos})`).bind(id));
  statements.push(d.prepare(`DELETE FROM favorite_votes WHERE candidate IN (SELECT token FROM favorite_candidates WHERE submission IN (${photos}))`).bind(id));
  statements.push(d.prepare(`DELETE FROM favorite_candidates WHERE submission IN (${photos})`).bind(id));
@@ -20,8 +20,8 @@ export function contentDeletionStatements(kind:'photo'|'own-photo'|'challenge'|'
  statements.push(d.prepare(`DELETE FROM reactions WHERE submission IN (${photos})`).bind(id));
  if(kind==='photo'||kind==='own-photo'){
   if(kind==='photo')
-  statements.push(d.prepare('DELETE FROM starts WHERE (user,challenge) IN (SELECT user,challenge FROM submissions WHERE id=?)').bind(id));
-  statements.push(d.prepare('DELETE FROM captures WHERE (user,challenge) IN (SELECT user,challenge FROM submissions WHERE id=?)').bind(id));
+  statements.push(d.prepare(`DELETE FROM starts WHERE (user,challenge) IN (SELECT user,challenge FROM submissions WHERE id=? AND (${condition}))`).bind(id));
+  if(!preserveCaptures)statements.push(d.prepare(`DELETE FROM captures WHERE (user,challenge) IN (SELECT user,challenge FROM submissions WHERE id=? AND (${condition}))`).bind(id));
  }
  else{
   if(kind!=='reset'){statements.push(d.prepare(`DELETE FROM difficulty_votes WHERE poll IN (SELECT id FROM difficulty_polls WHERE challenge IN (${challenges}))`).bind(id));statements.push(d.prepare(`DELETE FROM difficulty_polls WHERE challenge IN (${challenges})`).bind(id));statements.push(d.prepare(`DELETE FROM hunt_changes WHERE challenge IN (${challenges})`).bind(id));}
@@ -93,6 +93,7 @@ export async function deleteMember(value:any,actor:string){
  q.push(d.prepare(`DELETE FROM social_push WHERE actor=? OR submission IN (${photos}) OR subscription IN (SELECT id FROM push_subscriptions WHERE user=?)`).bind(id,id,id));
  q.push(d.prepare('DELETE FROM push_deliveries WHERE subscription IN (SELECT id FROM push_subscriptions WHERE user=?)').bind(id));
  for(const table of ['comments','reactions'])q.push(d.prepare(`DELETE FROM ${table} WHERE user=? OR submission IN (${photos})`).bind(id,id));
+ q.push(d.prepare("DELETE FROM settings WHERE key LIKE 'submission-window-capture:%' AND substr(key,27) IN(SELECT token FROM captures WHERE user=?)").bind(id));
  for(const table of ['usage_daily','usage_activity','submissions','avatars','captures','starts','sessions','login_sessions','local_accounts','push_subscriptions','notification_preferences'])q.push(d.prepare(`DELETE FROM ${table} WHERE user=?`).bind(id));
  for(const table of ['group_members','group_invites'])q.push(d.prepare(`DELETE FROM ${table} WHERE user=? OR group_id IN (SELECT id FROM groups WHERE owner=?)`).bind(id,id));
  q.push(d.prepare('DELETE FROM group_invites WHERE inviter=?').bind(id));
@@ -101,6 +102,7 @@ export async function deleteMember(value:any,actor:string){
  q.push(d.prepare('DELETE FROM friendships WHERE a=? OR b=?').bind(id,id));
  q.push(d.prepare('DELETE FROM user_reports WHERE target=?').bind(id));
  q.push(d.prepare("UPDATE user_reports SET reporter=?,reason='' WHERE reporter=?").bind(anonymous,id));
+ q.push(d.prepare("DELETE FROM settings WHERE key LIKE 'submission-window:%' AND json_extract(value,'$.user')=?").bind(id));
  q.push(d.prepare('DELETE FROM members WHERE id=? AND admin=0').bind(id));
  await d.batch(q);await cleanDeletedPhotos();
 }
