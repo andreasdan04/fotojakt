@@ -8,4 +8,15 @@ export function afternoonLocked(c:any,challenges:any[],submissions:any[],user:st
  const morning=challenges.find(m=>m.daily&&m.slot===1&&m.day===c.day&&m.season===c.season);
  return !!morning&&now<osloTime(c.day,17)&&!submissions.some(s=>s.challenge===morning.id&&s.user===user);
 }
-export function orderHunts(challenges:any[]){return [...challenges].sort((a,b)=>Number(!!a.locked)-Number(!!b.locked)||Number(!!a.own)-Number(!!b.own)||Number(!!b.lightning)-Number(!!a.lightning)||a.start-b.start)}
+export function orderHunts(challenges:any[]){
+ const ordered=[...challenges].sort((a,b)=>Number(!!a.locked)-Number(!!b.locked)||Number(!!a.own)-Number(!!b.own)||Number(!!b.lightning)-Number(!!a.lightning)||a.start-b.start);
+ // Keep overlapping daily cards in a fixed order, even when the afternoon
+ // card is locked or completed. Availability never changes which word is on top.
+ for(const afternoon of challenges.filter(c=>c.daily&&c.slot===2)){
+  const morning=ordered.find(c=>c.daily&&c.slot===1&&c.day===afternoon.day&&c.season===afternoon.season&&c.start<afternoon.end&&afternoon.start<c.end);
+  if(!morning)continue;
+  const morningIndex=ordered.indexOf(morning),afternoonIndex=ordered.indexOf(afternoon);
+  if(afternoonIndex>morningIndex){ordered.splice(afternoonIndex,1);ordered.splice(morningIndex,0,afternoon);}
+ }
+ return ordered;
+}

@@ -17,7 +17,16 @@ for(const day of ['2026-10-08','2026-10-25','2027-03-28']){
  assert.equal(afternoonLocked(pm,list,[],'alice',osloTime(day,17)-1),true);
  assert.equal(afternoonLocked(pm,list,[],'alice',osloTime(day,17)),false);
  assert.equal(afternoonLocked(pm,list,[],'alice',osloTime(day,14),{started:1}),false,'rollout keeps existing attempts');
- assert.deepEqual(orderHunts([{...pm,locked:true},{...am,locked:false}]).map(c=>c.id),['am','pm']);
+ assert.deepEqual(orderHunts([{...pm,locked:true},{...am,locked:false}]).map(c=>c.id),['pm','am'],'afternoon stays above morning even while locked');
+ for(const pmOwn of [null,{id:'delivered'}])for(const amOwn of [null,{id:'delivered'}])for(const reverse of [false,true]){
+  const cards=[{...am,own:amOwn,locked:false},{...pm,own:pmOwn,locked:false}],input=reverse?cards.toReversed():cards;
+  assert.deepEqual(orderHunts(input).map(c=>c.id),['pm','am'],'completed state and API order cannot switch overlapping words');
+  assert.deepEqual(input.map(c=>c.id),reverse?['pm','am']:['am','pm'],'ordering does not mutate input');
+ }
+ assert.deepEqual(orderHunts([am]).map(c=>c.id),['am'],'morning alone is unchanged');
+ assert.deepEqual(orderHunts([pm]).map(c=>c.id),['pm'],'afternoon alone is unchanged');
+ assert.deepEqual(orderHunts([{...am,end:pm.start},{...pm,locked:true}]).map(c=>c.id),['am','pm'],'nonoverlapping legacy hunts retain availability order');
+
 }
 assert.equal(new Date(osloTime('2026-10-25',6)).toISOString(),'2026-10-25T05:00:00.000Z');
 assert.equal(new Date(osloTime('2027-03-28',6)).toISOString(),'2027-03-28T04:00:00.000Z');
