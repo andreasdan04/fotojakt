@@ -1,3 +1,4 @@
+import {canReviewOwnPhoto} from '@/lib/staff-labels';
 import {decideCase} from '@/lib/judging';
 import {staff,one,all,origin,wrap,json,fail,str} from '@/lib/server';
 import {canReviewHunt,requireHuntReview} from '@/lib/hunt-review';
@@ -17,7 +18,7 @@ export const GET=wrap(async(req:Request)=>{
  const filter=user?' AND s.user=?':'';const args:any[]=[c.id,...(user?[str(user,100)]:[])];
  let cursor='';if(q.get('before')){const match=/^(\d{1,16}):([A-Za-z0-9:._-]{1,100})$/.exec(q.get('before')!);if(!match||!Number.isSafeInteger(Number(match[1])))fail('Ugyldig side.');cursor=' AND (s.submitted<? OR (s.submitted=? AND s.id<?))';args.push(Number(match[1]),Number(match[1]),match[2]);}
  const rows=await all(`SELECT s.id,s.user,s.submitted,s.elapsed,s.valid,s.note,s.caption,m.name,m.username,m.status,st.started,(SELECT id FROM review_decisions d WHERE d.submission=s.id AND d.kind='photo' AND d.current=1) decision FROM submissions s JOIN members m ON m.id=s.user LEFT JOIN starts st ON st.challenge=s.challenge AND st.user=s.user WHERE s.challenge=?${filter}${cursor} ORDER BY s.submitted DESC,s.id DESC LIMIT 37`,...args);
- const items=rows.slice(0,36).map((s:any)=>({...s,canJudge:s.user!==reviewer.userId&&(!s.decision||['owner','head_judge'].includes(reviewer.role)),reviewBlockedReason:s.user===reviewer.userId?'Du kan ikke dømme ditt eget bilde.':s.decision&&!['owner','head_judge'].includes(reviewer.role)?'Bildet har en avgjørelse. Bare hoveddommer eller eier kan omgjøre den.':null,started:c.daily?s.started:c.start,registeredPhotoTime:(c.daily?s.started:c.start)?(c.daily?s.started:c.start)+s.elapsed:null}));
+ const items=rows.slice(0,36).map((s:any)=>({...s,canJudge:(s.user!==reviewer.userId||canReviewOwnPhoto(reviewer.role))&&(!s.decision||['owner','head_judge'].includes(reviewer.role)),reviewBlockedReason:s.user===reviewer.userId&&!canReviewOwnPhoto(reviewer.role)?'Du kan ikke dømme ditt eget bilde.':s.decision&&!['owner','head_judge'].includes(reviewer.role)?'Bildet har en avgjørelse. Bare hoveddommer eller eier kan omgjøre den.':null,started:c.daily?s.started:c.start,registeredPhotoTime:(c.daily?s.started:c.start)?(c.daily?s.started:c.start)+s.elapsed:null}));
  const participants=await all('SELECT DISTINCT m.id,m.name,m.username FROM submissions s JOIN members m ON m.id=s.user WHERE s.challenge=? ORDER BY m.name,m.id',c.id);
  const total=await one(`SELECT COUNT(*) count FROM submissions s WHERE s.challenge=?${filter}`,c.id,...(user?[user]:[]));
  await auditPrivacyRead(reviewer.userId,'hunt-submission-list',items.map((s:any)=>s.id));

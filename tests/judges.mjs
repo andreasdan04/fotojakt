@@ -56,10 +56,13 @@ try{
  await db.prepare("INSERT INTO submissions(id,challenge,user,key,submitted,elapsed) VALUES('locked','active','alice','locked.jpg',?,1000)").bind(now-1000).run();await db.prepare("INSERT INTO photo_admin_reports(id,submission,reporter,reason,created) VALUES('locked-report','locked','bob','SECRET REPORT',?)").bind(now).run();
  for(const who of ['owner','admin','judge','head','head2']){
   const q=await req(who,'/api/judging');assert.equal(q.status,200,JSON.stringify(q));assert(!JSON.stringify(q).includes('@secret.invalid'));assert(!JSON.stringify(q).includes('SECRET'));
-  assert(!q.data.bonus.some(b=>b.submission==='photo-'+who));assert(!q.data.photos.some(b=>b.submission==='photo-'+who));
-  for(const kind of ['bonus','photo'])assert.equal((await req(who,'/api/judging',{kind,id:'photo-'+who,status:'rejected',reason:'Self',expectedValid:true,expectedNote:''})).status,403,'no role judges own image');
+  const ownAllowed=['owner','admin'].includes(who);
+  assert.equal(q.data.bonus.some(b=>b.submission==='photo-'+who),ownAllowed);assert.equal(q.data.photos.some(b=>b.submission==='photo-'+who),ownAllowed);
+  for(const kind of ['bonus','photo'])assert.equal((await req(who,'/api/judging',{kind,id:'photo-'+who,status:ownAllowed?'approved':'rejected',role:'owner',reason:'Self',expectedValid:true,expectedNote:''})).status,ownAllowed?200:403,'only owner and administrator review own image');
+  if(ownAllowed){assert.equal((await req(who,'/api/photo/photo-'+who+'?review=case')).status,200);const decisions=(await req(who,'/api/judging')).data.decisions;assert(decisions.some(d=>d.submission==='photo-'+who));assert.equal((await db.prepare('SELECT elapsed FROM submissions WHERE id=?').bind('photo-'+who).first()).elapsed,2000,'self review preserves capture time');}
  }
- for(const who of ['owner','admin','judge','head','head2'])assert.equal((await req(who,'/api/hunt',{action:'result',id:'photo-'+who,valid:false,seconds:1,note:'Self correction'})).status,403,'legacy correction cannot judge own image');
+ for(const who of ['admin','judge','head','head2'])assert.equal((await req(who,'/api/hunt',{action:'result',id:'photo-'+who,valid:false,seconds:1,note:'Self correction'})).status,403,'legacy correction cannot judge own image');
+ for(const who of ['owner','admin']){const item=(await req(who,'/api/admin-submissions?challenge=ended')).data.items.find(s=>s.user===who);assert.equal(item.canJudge,who==='owner','existing override permissions remain');if(who==='admin')assert((await req(who,'/api/judging')).data.decisions.every(d=>d.submission==='photo-admin'),'administrator decision view stays limited to own images');}
  assert.equal((await req('admin','/api/hunt',{action:'challenge',title:'Unauthorized',minutes:10,mode:'now'})).status,403,'only owner changes hunt settings');
  assert.equal((await req('judge','/api/judging',{kind:'photo',id:'photo-bob',status:'approved',elapsed:100,expectedValid:true,expectedNote:''})).status,403,'judge cannot alter elapsed time');
  // All hunt deliveries are now available to signed judges, without widening
@@ -129,5 +132,5 @@ try{
  now+=10;const fresh=(await req('owner','/api/admin-access')).data;assert.equal((await req('owner','/api/admin-access',{action:'accept',version:doc.version,accepted:true,name:'Owner Person',signature:sign})).status,400);assert.equal((await req('owner','/api/admin-access',{action:'accept',version:fresh.version,accepted:true,name:'Owner Person',signature:sign})).status,200);
  assert.equal((await req('owner','/api/admin-access?agreement=owner')).data.records.length,2,'signature history retained');assert.equal((await req('owner','/api/admin-access?agreement=owner')).data.legacy.version,'2026-10-07.1','previous typed declaration retained');
  assert.equal((await req('owner','/api/judging',{}, {origin:'https://evil.invalid'})).status,403);
- console.log('PASS: role matrix, personal judge login, compulsory nonempty handwritten signatures, owner-only signature access, history, minor/material document versions, immediate revocation, minimal case data, locked hunts, all-role self-review ban, concurrent decisions and appeals, independent appeal reviewer, image/bonus restoration, scoring without duplication, in-app notice, voluntary Expo push and deduplication.');
+ console.log('PASS: role matrix, personal judge login, compulsory nonempty handwritten signatures, owner-only signature access, history, minor/material document versions, immediate revocation, minimal case data, locked hunts, owner/administrator self-review, judge/head judge self-review ban, concurrent decisions and appeals, independent appeal reviewer, image/bonus restoration, scoring without duplication, in-app notice, voluntary Expo push and deduplication.');
 }finally{await mf.dispose()}

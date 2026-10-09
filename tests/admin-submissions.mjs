@@ -65,9 +65,11 @@ try{
  assert.equal(await points(),10,'reinstated photo earns its original placement again');
  await db.prepare("INSERT INTO submissions(id,challenge,user,key,submitted,elapsed) VALUES('own','active','reviewer','photos/own',?,9000)").bind(now).run();
  assert.equal((await req('reviewer','/api/admin-submissions?challenge=active')).status,200);assert.equal((await req('reviewer','/api/photo/active-photo?review=hunt')).status,200);
+ const ownList=await(await req('reviewer','/api/admin-submissions?challenge=active')).json();assert.equal(ownList.items.find(s=>s.id==='own').canJudge,true);assert.equal((await review('reviewer',{id:'own',valid:true,category:'restore',reason:'Motivet oppfyller kravet.',expectedValid:true,expectedNote:''})).status,200,'owner approves own unreported photo');
  await db.prepare("DELETE FROM submissions WHERE id='own'").run();assert.equal((await req('reviewer','/api/admin-submissions?challenge=active')).status,403);assert.equal((await req('reviewer','/api/photo/active-photo?review=hunt')).status,403,'photo route rechecks after own delivery is removed');
  assert.equal((await req('reviewer','/api/admin-submissions?challenge=future')).status,403);
  await db.prepare("DELETE FROM settings WHERE key='owner'").run();
+ await db.prepare("INSERT INTO submissions(id,challenge,user,key,submitted,elapsed) VALUES('own-admin','completed','reviewer','photos/own-admin',?,9000)").bind(now).run();assert.equal((await review('reviewer',{id:'own-admin',valid:true,category:'restore',reason:'Motivet oppfyller kravet.',expectedValid:true,expectedNote:''})).status,200,'administrator approves own unreported photo');assert.equal((await db.prepare("SELECT elapsed FROM submissions WHERE id='own-admin'").first()).elapsed,9000);
  await db.prepare("UPDATE members SET admin=0 WHERE id='reviewer'").run();assert.equal((await req('reviewer','/api/admin-submissions?challenge=completed')).status,403);assert.equal((await req('reviewer','/api/photo/photo-0?review=hunt')).status,403);
  assert.equal((await review('reviewer',verdict)).status,403);
  console.log('PASS: signed admin access to all hunt participants; normal gallery boundary; own-delivery/end gate on list and image; future-word secrecy; blocked/invalid records; user filter and pagination; separate receipt/photo times; minimal audit and no-store; immediate role and own-delivery rechecks.');
